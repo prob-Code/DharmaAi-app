@@ -1,0 +1,129 @@
+# =============================================
+# DharmaAI - Inner Balance Companion
+# =============================================
+
+# =============
+# Dependencies
+# =============
+node_modules/
+.pnp
+.pnp.js
+
+# =============
+# Expo / React Native
+# =============
+.expo/
+.expo-shared/
+dist/
+web-build/
+expo-env.d.ts
+*.hbc
+mobile-app/.expo/
+mobile-app/.expo-shared/
+mobile-app/web-build/
+mobile-app/dist/
+
+# =============
+# Native Builds
+# =============
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+# Android
+mobile-app/android/.gradle/
+mobile-app/android/app/build/
+mobile-app/android/build/
+mobile-app/android/local.properties
+*.apk
+*.aab
+
+# iOS
+ios/
+*.xcworkspace
+*.xcuserdata
+Pods/
+
+# =============
+# Metro Bundler
+# =============
+.metro-health-check*
+
+# =============
+# Python / RAG Model
+# =============
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+*.egg
+*.npy
+*.npz
+*.pkl
+*.h5
+*.model
+*.bin
+.Python
+pip-log.txt
+pip-delete-this-directory.txt
+*.zip
+
+# =============
+# Backend Build Output
+# =============
+mobile-app/backend/dist/
+mobile-app/backend/node_modules/
+mobile-app/backend/.env
+mobile-app/backend/.env.*
+
+# =============
+# Environment & Secrets
+# =============
+.env
+.env.local
+.env*.local
+.env.development
+.env.production
+*.pem
+
+# =============
+# IDE & Editor
+# =============
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.claude/
+.gemini/
+
+# =============
+# OS Files
+# =============
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# =============
+# Debug Logs
+# =============
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+*.log
+
+# =============
+# TypeScript
+# =============
+*.tsbuildinfo
+
+# =============
+# Misc
+# =============
+*.pdf
