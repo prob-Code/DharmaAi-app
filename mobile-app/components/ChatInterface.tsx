@@ -4,13 +4,15 @@ import { View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, Keyboard
 import { Video } from 'expo-av';
 import * as Speech from 'expo-speech';
 import { BlurView } from 'expo-blur';
-import { Mic, Send, Music, Volume2, VolumeX, Settings } from 'lucide-react-native';
+import { Mic, Send, Music, Volume2, VolumeX, Settings, Brain } from 'lucide-react-native';
 import { Message, UserSettings } from '../src/types';
 import { getTranslation } from '../translations';
 import { getAIResponse, getGeminiTTS } from '../services/gemini';
 import { getSarvamTTS } from '../services/sarvam';
 import { getSoundAsset, COLORS, KRISHNA_IMAGE, KRISHNA_VIDEO_URL, testAllSounds } from '../constants';
 import { useTheme } from '../context/ThemeContext';
+import { analyzeStress, StressAnalysisResult } from '../services/stressAnalysis';
+import { StressReport } from './StressReport';
 
 // Import Audio only for native platforms to avoid web conflicts
 let Audio: any = null;
@@ -42,6 +44,12 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
     const ambientVolumeRef = useRef(0);
     const scaleAnim = useRef(new Animated.Value(1)).current;
     
+    // Stress Report State
+    const [isReportVisible, setIsReportVisible] = useState(false);
+    const [reportData, setReportData] = useState<StressAnalysisResult | null>(null);
+    const [isReportLoading, setIsReportLoading] = useState(false);
+    const [reportError, setReportError] = useState<string | null>(null);
+
     // Web audio ref for HTML5 Audio API
     const webAudioRef = useRef<HTMLAudioElement | null>(null);
     const webVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -769,6 +777,21 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
         }
     };
 
+    const handleGenerateReport = async () => {
+        setIsReportVisible(true);
+        setIsReportLoading(true);
+        setReportError(null);
+
+        try {
+            const result = await analyzeStress(messages);
+            setReportData(result);
+        } catch (err: any) {
+            setReportError(err.message || "Failed to analyze chat history.");
+        } finally {
+            setIsReportLoading(false);
+        }
+    };
+
     const renderItem = ({ item }: { item: Message }) => {
         const isUser = item.role === 'user';
         return (
@@ -843,6 +866,9 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
                 <View style={styles.header}>
                     <Text style={[styles.headerTitle, dynamicStyles.accentColor]}>Dharma AI</Text>
                     <View style={{ flexDirection: 'row', gap: 10 }}>
+                        <TouchableOpacity onPress={handleGenerateReport} style={styles.iconButton}>
+                            <Brain color={theme.colors.accent} size={24} />
+                        </TouchableOpacity>
                         <TouchableOpacity onPress={toggleAmbient} style={styles.iconButton}>
                             {isAmbientPlaying ? <Volume2 color={theme.colors.accent} size={24} /> : <VolumeX color={theme.colors.muted} size={24} />}
                         </TouchableOpacity>
@@ -888,6 +914,14 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
                     </BlurView>
                 </View>
             </KeyboardAvoidingView>
+
+            <StressReport
+                visible={isReportVisible}
+                onClose={() => setIsReportVisible(false)}
+                data={reportData}
+                isLoading={isReportLoading}
+                error={reportError}
+            />
         </View>
     );
 };

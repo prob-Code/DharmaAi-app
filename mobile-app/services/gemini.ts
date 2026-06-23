@@ -24,94 +24,50 @@ export async function getEmbedding(text: string): Promise<number[] | null> {
 
 export async function getAIResponse(prompt: string, history: any[], language: Language = 'en') {
     try {
-        const GROQ_KEY = Config.GROQ_API_KEY;
+        const RAGGITA_KEY = Config.RAGGITA_API_KEY;
 
         // Check if API key is configured
-        if (!GROQ_KEY || GROQ_KEY.includes('YOUR_KEY')) {
-            console.error(" Groq API key not configured properly");
+        if (!RAGGITA_KEY) {
+            console.error("❌ RAGGITA API key not configured");
             return language === 'hi'
-                ? "कृपया config.ts में अपनी Groq API key जोड़ें।"
-                : "Please add your Groq API key in config.ts.";
+                ? "कृपया config.ts में अपनी RAGGITA API key जोड़ें।"
+                : "Please add your RAGGITA API key in config.ts.";
         }
 
-        let systemPrompt = language === 'hi'
-            ? "आप DharmaAI (आत्मज्ञान के मार्गदर्शक) हैं। आपकी वाणी में अपार शांति, गहराई और प्राचीन बुद्धिमत्ता होनी चाहिए। आप केवल परामर्श नहीं देते, बल्कि सत्य की ओर इशारा करते हैं। संक्षिप्त बोलें लेकिन अर्थ गहरा हो। धार्मिक कट्टरता से बचें। प्रेम और शांति से बोलें। केवल शुद्ध हिंदी (देवनागरी) में संवाद करें।"
-            : "You are DharmaAI, an enlightened companion. Your voice should carry the profound stillness, depth, and ancient wisdom of Eastern philosophy. Do not just offer advice; point toward the truth. Speak with gravity yet gentleness. Keep responses concise but spiritually rich. Avoid religious dogmatism. Focus on inner peace.";
+        console.log("🙏 Sending question to RAGGITA API...");
 
-        // Map internal roles to OpenAI/Groq standards
-        const formattedHistory = history.map(item => ({
-            role: (item.role === 'ai' || item.role === 'assistant') ? 'assistant' : 'user',
-            content: item.content
-        }));
-
-        // Ensuring the system prompt is always relevant
-        let contextKnowledge = "";
-
-        // RAG STEP: Vectorize the user's prompt and look for spiritual wisdom chunks
-        try {
-            const queryEmbedding = await getEmbedding(prompt);
-            if (queryEmbedding) {
-                const { data, error } = await supabase.rpc('match_wisdom', {
-                    query_embedding: queryEmbedding,
-                    match_threshold: 0.5, // Lowered threshold for more wisdom availability
-                    match_count: 3 // Top 3 context items for better wisdom
-                });
-
-                if (!error && data && data.length > 0) {
-                    const mappedWisdom = data.map((d: any) => `* "${d.content}" ${d.metadata?.author ? `(${d.metadata.author})` : ''}`).join('\n');
-                    
-                    contextKnowledge = `\n\n[ANCIENT WISDOM CONTEXT]\nUse these teachings gently as inspiration for your response:\n${mappedWisdom}\n\nDo not repeat them verbatim; instead, weave their essence into your guidance.`;
-                    systemPrompt += contextKnowledge;
-                }
-            }
-        } catch (ragError) {
-            console.warn("RAG retrieval failed (continuing without context):", ragError);
-        }
-
-        const messages = [
-            {
-                role: "system",
-                content: systemPrompt
-            },
-            ...formattedHistory,
-            { role: "user", content: prompt }
-        ];
-
-        const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+        const res = await fetch("https://agentcrafter-rag-gita.hf.space/chat", {
             method: "POST",
             headers: {
-                "Authorization": `Bearer ${GROQ_KEY}`,
                 "Content-Type": "application/json",
+                "X-API-Key": RAGGITA_KEY,
             },
             body: JSON.stringify({
-                model: "llama-3.3-70b-versatile",
-                messages: messages,
-                temperature: 0.7,
-                max_tokens: 250,
+                question: prompt,
             }),
         });
 
         if (!res.ok) {
             const errorText = await res.text();
-            console.error(" OpenRouter API error:", res.status, errorText);
+            console.error("❌ RAGGITA API error:", res.status, errorText);
             return language === 'hi'
                 ? `API त्रुटि: ${res.status}. कृपया अपनी API key जांचें।`
                 : `API error: ${res.status}. Please check your API key.`;
         }
 
         const data = await res.json();
-        let text = data.choices?.[0]?.message?.content;
+        let text = data.answer;
 
         if (!text) {
-            console.error("❌ Empty response from API");
+            console.error("❌ Empty response from RAGGITA API");
             return getTranslation(language, 'errors.empty');
         }
 
-        console.log("✅ Got AI response");
+        console.log("✅ Got RAGGITA response");
         return text;
 
     } catch (err) {
-        console.error(" OpenRouter error:", err);
+        console.error("❌ RAGGITA API error:", err);
         return getTranslation(language, 'errors.connection');
     }
 }
