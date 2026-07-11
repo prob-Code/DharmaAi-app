@@ -421,6 +421,86 @@ export const authService = {
         if (error) throw error;
         return data;
     },
+
+    // Delete account and all associated data (Required by Google Play Policy)
+    deleteAccount: async () => {
+        try {
+            const user = await authService.getCurrentUser();
+            if (!user) throw new Error('No user logged in');
+
+            const userId = user.id;
+            console.log('[Auth] Starting account deletion for user:', userId);
+
+            // Delete all user data in order (respecting foreign key constraints)
+            // 1. Delete likes
+            const { error: likesError } = await supabase
+                .from('likes')
+                .delete()
+                .eq('user_id', userId);
+            if (likesError) console.warn('[Auth] Error deleting likes:', likesError.message);
+
+            // 2. Delete comments
+            const { error: commentsError } = await supabase
+                .from('comments')
+                .delete()
+                .eq('user_id', userId);
+            if (commentsError) console.warn('[Auth] Error deleting comments:', commentsError.message);
+
+            // 3. Delete messages (sent and received)
+            const { error: sentMsgError } = await supabase
+                .from('messages')
+                .delete()
+                .eq('sender_id', userId);
+            if (sentMsgError) console.warn('[Auth] Error deleting sent messages:', sentMsgError.message);
+
+            const { error: recvMsgError } = await supabase
+                .from('messages')
+                .delete()
+                .eq('receiver_id', userId);
+            if (recvMsgError) console.warn('[Auth] Error deleting received messages:', recvMsgError.message);
+
+            // 4. Delete follows
+            const { error: followingError } = await supabase
+                .from('follows')
+                .delete()
+                .eq('follower_id', userId);
+            if (followingError) console.warn('[Auth] Error deleting following:', followingError.message);
+
+            const { error: followersError } = await supabase
+                .from('follows')
+                .delete()
+                .eq('following_id', userId);
+            if (followersError) console.warn('[Auth] Error deleting followers:', followersError.message);
+
+            // 5. Delete posts (will cascade delete related likes/comments if FK set)
+            const { error: postsError } = await supabase
+                .from('posts')
+                .delete()
+                .eq('user_id', userId);
+            if (postsError) console.warn('[Auth] Error deleting posts:', postsError.message);
+
+            // 6. Delete profile
+            const { error: profileError } = await supabase
+                .from('profiles')
+                .delete()
+                .eq('id', userId);
+            if (profileError) console.warn('[Auth] Error deleting profile:', profileError.message);
+
+            console.log('[Auth] All user data deleted. Signing out...');
+
+            // 7. Clear local storage
+            await AsyncStorage.clear();
+
+            // 8. Sign out (this also clears the session)
+            await supabase.auth.signOut();
+
+            console.log('[Auth] Account deletion complete.');
+            return true;
+        } catch (error: any) {
+            console.error('[Auth] Account deletion error:', error.message);
+            throw new Error('Failed to delete account. Please try again or contact support.');
+        }
+    },
 };
 
 // ─── User-friendly error messages ───
