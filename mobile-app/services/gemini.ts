@@ -50,6 +50,14 @@ export async function getAIResponse(prompt: string, history: any[], language: La
         if (!res.ok) {
             const errorText = await res.text();
             console.error("❌ RAGGITA API error:", res.status, errorText);
+
+            const isUpstreamFailure = [500, 502, 503, 504].includes(res.status);
+            if (isUpstreamFailure) {
+                return language === 'hi'
+                    ? "Companion AI अभी उपलब्ध नहीं है। बाहरी RAG सर्विस डाउन है।"
+                    : "Companion AI is temporarily unavailable. The external RAG service is down.";
+            }
+
             return language === 'hi'
                 ? `API त्रुटि: ${res.status}. कृपया अपनी API key जांचें।`
                 : `API error: ${res.status}. Please check your API key.`;

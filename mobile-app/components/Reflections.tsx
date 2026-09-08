@@ -80,6 +80,7 @@ export const Reflections: React.FC<Props> = ({ settings }) => {
 
   const { user } = useAuth();
   const currentUserId = user?.id;
+  const isGuestMode = !user || user.id === 'guest-user';
 
   const [showCompose, setShowCompose] = useState(false);
   const [newContent, setNewContent] = useState('');
@@ -129,6 +130,12 @@ export const Reflections: React.FC<Props> = ({ settings }) => {
   }), [theme]);
 
   const loadPosts = async () => {
+    if (isGuestMode) {
+      setPosts([]);
+      setRefreshing(false);
+      return;
+    }
+
     try {
       const data = await postsService.getFeed(50);
       const transformed: ReflectionPost[] = data.map((post: any) => ({
@@ -258,12 +265,22 @@ export const Reflections: React.FC<Props> = ({ settings }) => {
   }, [currentUserId]);
 
   const handleRefresh = async () => {
+    if (isGuestMode) {
+      setPosts([]);
+      setRefreshing(false);
+      return;
+    }
+
     setRefreshing(true);
     await loadPosts();
   };
 
   const handlePost = async () => {
     if (!newContent.trim()) return;
+    if (isGuestMode) {
+      Alert.alert('Guest mode', 'Sign in to share reflections.');
+      return;
+    }
 
     try {
       const data = await postsService.create(newContent, selectedMood.label);
@@ -302,6 +319,10 @@ export const Reflections: React.FC<Props> = ({ settings }) => {
 
   const handleReply = async () => {
     if (!replyContent.trim() || !activeThread) return;
+    if (isGuestMode) {
+      Alert.alert('Guest mode', 'Sign in to respond to reflections.');
+      return;
+    }
     setReplying(true);
 
     try {
@@ -347,6 +368,11 @@ export const Reflections: React.FC<Props> = ({ settings }) => {
   };
 
   const handleDeletePost = async (postId: string) => {
+    if (isGuestMode) {
+      Alert.alert('Guest mode', 'Sign in to manage reflections.');
+      return;
+    }
+
     Alert.alert(
       'Delete Reflection',
       'Are you sure you want to delete this reflection?',
@@ -370,6 +396,11 @@ export const Reflections: React.FC<Props> = ({ settings }) => {
   };
 
   const handleLike = async (postId: string) => {
+    if (isGuestMode) {
+      Alert.alert('Guest mode', 'Sign in to like reflections.');
+      return;
+    }
+
     try {
       const liked = await likesService.toggle(postId);
 
@@ -799,6 +830,19 @@ export const Reflections: React.FC<Props> = ({ settings }) => {
           onBack={() => setShowNotifications(false)}
         />
       </>
+    );
+  }
+
+  if (isGuestMode) {
+    return (
+      <View style={[styles.container, dynamicStyles.containerBg]}>
+        <View style={styles.guestStateContainer}>
+          <Text style={[styles.guestStateTitle, dynamicStyles.textColor]}>Reflection feed is unavailable in guest mode</Text>
+          <Text style={[styles.guestStateText, dynamicStyles.mutedColor]}>
+            Sign in with your DharmaAI account to see community reflections and join the conversation.
+          </Text>
+        </View>
+      </View>
     );
   }
 
@@ -1548,6 +1592,24 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     letterSpacing: 2,
+  },
+  guestStateContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+    paddingTop: 60,
+  },
+  guestStateTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    textAlign: 'center',
+    marginBottom: 12,
+  },
+  guestStateText: {
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 20,
   },
   modalContainer: {
     flex: 1,
