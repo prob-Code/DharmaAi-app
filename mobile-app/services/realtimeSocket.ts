@@ -42,7 +42,7 @@ export interface ReflectionPostRealtimePayload {
   moodTag?: string;
   timestamp: number;
   likes: number;
-  isLiked: boolean;
+  isLiked?: boolean;
   user?: {
     username?: string;
     display_name?: string;
