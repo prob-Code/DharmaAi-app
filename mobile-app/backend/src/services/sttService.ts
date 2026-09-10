@@ -4,6 +4,14 @@ export interface SttResult {
   transcript: string;
 }
 
+function isEmptyTranscript(value: string): boolean {
+  const normalized = value.trim();
+  return (
+    normalized.length === 0 ||
+    /^(silence|no speech|no audio|empty|undefined|null)$/.test(normalized.toLowerCase())
+  );
+}
+
 /**
  * Transcribes audio using Sarvam AI Speech-to-Text (saaras:v3).
  *
@@ -12,11 +20,11 @@ export interface SttResult {
  * Language is auto-detected by Sarvam (no explicit language_code sent).
  *
  * @param audioBuffer - Raw audio bytes (e.g. M4A/AAC from expo-av)
- * @param languageHint - Optional language hint ('en' | 'hi') for logging only
+ * @param mimeType - Audio MIME type from the uploaded file
  */
 export async function transcribeAudio(
   audioBuffer: Buffer,
-  languageHint?: string
+  mimeType = "audio/m4a"
 ): Promise<SttResult> {
   if (!env.SARVAM_API_KEY) {
     throw new Error("SARVAM_API_KEY is not configured");
@@ -27,8 +35,7 @@ export async function transcribeAudio(
   }
 
   const formData = new FormData();
-  // Node's native FormData accepts a Uint8Array as a file part.
-  formData.append("file", new Blob([new Uint8Array(audioBuffer)], { type: "audio/m4a" }), "recording.m4a");
+  formData.append("file", new Blob([new Uint8Array(audioBuffer)], { type: mimeType }), "recording.m4a");
   formData.append("model", "saaras:v3");
 
   const response = await fetch("https://api.sarvam.ai/speech-to-text", {
@@ -54,11 +61,12 @@ export async function transcribeAudio(
     throw new Error("Malformed response from Sarvam STT");
   }
 
-  // Sarvam saaras:v3 returns { transcript: "..." }
-  const transcript = (data as any).transcript || (data as any).text || "";
+  const transcript = (data as any).transcript ?? (data as any).text ?? "";
 
-  if (!transcript || typeof transcript !== "string") {
-    throw new Error("Empty transcript from Sarvam STT");
+  if (typeof transcript !== "string" || isEmptyTranscript(transcript)) {
+    const err = new Error("No speech detected in audio") as Error & { statusCode?: number };
+    err.statusCode = 422;
+    throw err;
   }
 
   return { transcript: transcript.trim() };

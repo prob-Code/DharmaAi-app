@@ -12,50 +12,26 @@ export interface VoiceInputCallbacks {
 const STT_TIMEOUT_MS = 15000;
 
 /**
- * Reads a local file URI as a base64 string using fetch + FileReader.
- * Works in React Native where expo-file-system is not installed.
+ * Uploads a recorded audio file to the backend STT endpoint as multipart/form-data.
+ * The backend performs automatic language detection and returns a transcript.
  */
-async function readLocalFileAsBase64(uri: string): Promise<string> {
-  const response = await fetch(uri);
+async function sendAudioToBackend(fileUri: string): Promise<string> {
+  const response = await fetch(fileUri);
   const blob = await response.blob();
 
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result as string;
-      // Strip the data URL prefix: "data:audio/m4a;base64,XXXX"
-      const base64 = result.split(',')[1];
-      if (!base64) {
-        reject(new Error('Failed to read audio file'));
-        return;
-      }
-      resolve(base64);
-    };
-    reader.onerror = () => reject(new Error('Failed to read audio file'));
-    reader.readAsDataURL(blob);
-  });
-}
+  const formData = new FormData();
+  formData.append('file', blob, 'recording.m4a');
+  formData.append('model', 'saaras:v3');
 
-/**
- * Sends base64 audio to the parent backend /api/ai/stt endpoint.
- * Returns the transcript string.
- */
-async function sendAudioToBackend(base64: string, language?: string): Promise<string> {
-  const response = await fetch(`${Config.BACKEND_URL}/api/ai/stt`, {
+  const sttResponse = await fetch(`${Config.BACKEND_URL}/api/ai/stt`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      audio: base64,
-      language,
-    }),
+    body: formData,
   });
 
-  if (!response.ok) {
-    let errorMessage = `STT request failed (${response.status})`;
+  if (!sttResponse.ok) {
+    let errorMessage = `STT request failed (${sttResponse.status})`;
     try {
-      const errorData = await response.json();
+      const errorData = await sttResponse.json();
       errorMessage = errorData.error || errorMessage;
     } catch {
       // Use default error message
@@ -63,11 +39,17 @@ async function sendAudioToBackend(base64: string, language?: string): Promise<st
     throw new Error(errorMessage);
   }
 
-  const data = await response.json();
+  const data = await sttResponse.json();
   if (!data.transcript || typeof data.transcript !== 'string') {
     throw new Error('Malformed response from STT endpoint');
   }
-  return data.transcript;
+
+  const transcript = data.transcript.trim();
+  if (!transcript || /^(silence|no speech|no audio|empty)$/.test(transcript.toLowerCase())) {
+    throw new Error('No speech detected');
+  }
+
+  return transcript;
 }
 
 export class VoiceInputService {
@@ -187,34 +169,14 @@ export class VoiceInputService {
 
     this.setState('PROCESSING');
 
-    // Read the audio file as base64
-    let base64: string;
-    try {
-      base64 = await readLocalFileAsBase64(uri);
-    } catch (e: any) {
-      this.setState('ERROR');
-      this.callbacks.onError("I didn't quite catch that. Try again.");
-      return;
-    }
-
-    if (!base64 || base64.length === 0) {
-      this.setState('ERROR');
-      this.callbacks.onError("I didn't quite catch that. Try again.");
-      return;
-    }
-
-    // Check for cancellation
     if (this.isCancelled) {
       this.setState('IDLE');
       return;
     }
 
-    const language = 'en';
-
-    // Send to backend with timeout
     try {
       const transcript = await Promise.race([
-        sendAudioToBackend(base64, language),
+        sendAudioToBackend(uri),
         new Promise<string>((_, reject) =>
           setTimeout(() => reject(new Error('STT request timed out')), STT_TIMEOUT_MS)
         ),
