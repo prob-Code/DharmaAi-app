@@ -18,7 +18,7 @@ export function createApp() {
       origin: env.CORS_ORIGIN === "*" ? true : env.CORS_ORIGIN.split(",").map((v) => v.trim())
     })
   );
-  app.use(express.json({ limit: "1mb" }));
+  app.use(express.json({ limit: "8mb" }));
 
   app.use(
     "/api",

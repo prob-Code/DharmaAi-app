@@ -9,6 +9,7 @@ import { Message, UserSettings } from '../src/types';
 import { getTranslation } from '../translations';
 import { getAIResponse, getGeminiTTS } from '../services/gemini';
 import { getSarvamTTS } from '../services/sarvam';
+import { VoiceInputService, VoiceState } from '../services/voiceInput';
 import { getSoundAsset, COLORS, KRISHNA_IMAGE, KRISHNA_VIDEO_URL, testAllSounds } from '../constants';
 import { useTheme } from '../context/ThemeContext';
 import { analyzeStress, StressAnalysisResult } from '../services/stressAnalysis';
@@ -36,6 +37,7 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
     const [messages, setMessages] = useState<Message[]>([]);
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
+    const [voiceState, setVoiceState] = useState<VoiceState>('IDLE');
     const [sound, setSound] = useState<any>(null);
     const [voiceSound, setVoiceSound] = useState<any>(null);
     const [isAmbientPlaying, setIsAmbientPlaying] = useState(true); // Auto-play background sound
@@ -727,13 +729,14 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
         }
     };
 
-    const handleSend = async () => {
-        if (!input.trim()) return;
+    const submitPrompt = async (prompt: string) => {
+        const text = prompt.trim();
+        if (!text) return;
 
         const userMsg: Message = {
             id: Date.now().toString(),
             role: 'user',
-            content: input,
+            content: text,
             timestamp: Date.now()
         };
 
@@ -741,12 +744,8 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
         setInput('');
         setIsLoading(true);
 
-        // Optional: Pause ambient when sending (if desired, but user might want it background)
-        // If we want to pause: 
-        // if (isAmbientPlaying) setIsAmbientPlaying(false);
-
         try {
-            const aiText = await getAIResponse(userMsg.content, messages.map(m => ({ role: m.role, content: m.content })), settings.language);
+            const aiText = await getAIResponse(text, messages.map(m => ({ role: m.role, content: m.content })), settings.language);
 
             const aiMsg: Message = {
                 id: (Date.now() + 1).toString(),
@@ -758,15 +757,14 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
             setIsLoading(false);
 
             if (settings.voiceEnabled) {
-                // Try Sarvam AI first for best quality, then fallback to Gemini flash
                 let audioData = await getSarvamTTS(aiText, settings.language, {
                     voiceSpeed: settings.voiceSpeed,
                 });
-                
+
                 if (!audioData) {
                     audioData = await getGeminiTTS(aiText, settings.voiceStyle, settings.language);
                 }
-                
+
                 playVoice(aiText, audioData);
             }
 
@@ -775,6 +773,50 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
             setIsLoading(false);
             setMessages(prev => [...prev, { id: 'err', role: 'ai', content: getTranslation(settings.language, 'errors.connection'), timestamp: Date.now() }]);
         }
+    };
+
+    const handleSend = async () => {
+        await submitPrompt(input);
+    };
+
+    const voiceServiceRef = useRef<VoiceInputService | null>(null);
+
+    useEffect(() => {
+        if (!voiceServiceRef.current) {
+            voiceServiceRef.current = new VoiceInputService({
+                onStateChange: (nextState) => {
+                    setVoiceState(nextState);
+                },
+                onTranscript: async (transcript) => {
+                    await submitPrompt(transcript);
+                },
+                onError: (message) => {
+                    setVoiceState('ERROR');
+                    setInput('');
+                    setMessages(prev => [...prev, {
+                        id: `voice-error-${Date.now()}`,
+                        role: 'ai',
+                        content: message,
+                        timestamp: Date.now(),
+                    }]);
+                }
+            });
+        }
+
+        return () => {
+            voiceServiceRef.current?.cancel();
+            voiceServiceRef.current = null;
+        };
+    }, []);
+
+    const startVoiceRecording = async () => {
+        if (!voiceServiceRef.current || isLoading) return;
+        await voiceServiceRef.current.startRecording();
+    };
+
+    const stopVoiceRecording = async () => {
+        if (!voiceServiceRef.current) return;
+        await voiceServiceRef.current.stopAndTranscribe();
     };
 
     const handleGenerateReport = async () => {
@@ -903,8 +945,17 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
                             multiline
                         />
                         <View style={styles.actionButtons}>
-                            {/* Mic icon could go here if implemented */}
-                            {/* Note icon for sound toggle */}
+                            <TouchableOpacity
+                                onPress={voiceState === 'RECORDING' ? stopVoiceRecording : startVoiceRecording}
+                                disabled={isLoading || voiceState === 'PROCESSING'}
+                                style={[styles.micButton, voiceState === 'RECORDING' && styles.micButtonActive]}
+                            >
+                                {voiceState === 'PROCESSING' ? (
+                                    <ActivityIndicator size="small" color={theme.colors.accent} />
+                                ) : (
+                                    <Mic size={18} color={voiceState === 'RECORDING' ? '#FFFFFF' : theme.colors.accent} />
+                                )}
+                            </TouchableOpacity>
                             <Music size={20} color={theme.colors.accent} style={{ opacity: 0.5, marginRight: 10 }} />
 
                             <TouchableOpacity onPress={handleSend} disabled={!input.trim() || isLoading} style={[styles.sendButton, dynamicStyles.sendButtonBg]}>
@@ -1019,6 +1070,18 @@ const styles = StyleSheet.create({
     actionButtons: {
         flexDirection: 'row',
         alignItems: 'center',
+    },
+    micButton: {
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginRight: 10,
+        backgroundColor: 'rgba(255,255,255,0.12)',
+    },
+    micButtonActive: {
+        backgroundColor: '#E76F51',
     },
     sendButton: {
         width: 40,

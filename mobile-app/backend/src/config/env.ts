@@ -10,7 +10,10 @@ const envSchema = z.object({
   SOCKET_CORS_ORIGIN: z.string().optional(),
   YOUTUBE_API_KEY: z.string().min(1, "YOUTUBE_API_KEY is required"),
   GROQ_API_KEY: z.string().optional(),
-  GROQ_MODEL: z.string().default("llama-3.3-70b-versatile")
+  GROQ_MODEL: z.string().default("llama-3.3-70b-versatile"),
+  OPENROUTER_API_KEY: z.string().optional(),
+  OPENROUTER_MODEL: z.string().default("llama-3.3-70b-versatile"),
+  SARVAM_API_KEY: z.string().optional()
 });
 
 const parsed = envSchema.safeParse(process.env);
