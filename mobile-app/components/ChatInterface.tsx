@@ -14,6 +14,14 @@ import { getSoundAsset, COLORS, KRISHNA_IMAGE, KRISHNA_VIDEO_URL, testAllSounds 
 import { useTheme } from '../context/ThemeContext';
 import { analyzeStress, StressAnalysisResult } from '../services/stressAnalysis';
 import { StressReport } from './StressReport';
+import { createInitialConversationState } from '../services/companion/conversationState';
+import {
+    createSessionOrchestratorState,
+    DEFAULT_SESSION_ORCHESTRATOR_STATE,
+    type SessionOrchestratorState,
+} from '../services/companion/sessionOrchestrator';
+import { createCompanionContext } from '../services/companion/companionContext';
+import { createCompanionPrompt } from '../services/companion/companionPrompt';
 
 // Import Audio only for native platforms to avoid web conflicts
 let Audio: any = null;
@@ -45,6 +53,23 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
     const [isVoiceSpeaking, setIsVoiceSpeaking] = useState(false);
     const ambientVolumeRef = useRef(0);
     const scaleAnim = useRef(new Animated.Value(1)).current;
+
+    const [sessionState, setSessionState] = useState<SessionOrchestratorState>(() => {
+        const initialConversationState = createInitialConversationState({
+            currentTopic: 'check-in',
+            responseDepth: 'brief',
+            userTimeBudget: 'standard',
+            interactionMode: 'conversation',
+        });
+
+        return createSessionOrchestratorState(1, null, initialConversationState, {
+            conversationState: initialConversationState,
+        }) ?? {
+            ...DEFAULT_SESSION_ORCHESTRATOR_STATE,
+            conversationState: initialConversationState,
+        };
+    });
+    const conversationState = sessionState.conversationState;
     
     // Stress Report State
     const [isReportVisible, setIsReportVisible] = useState(false);
@@ -745,7 +770,25 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
         setIsLoading(true);
 
         try {
-            const aiText = await getAIResponse(text, messages.map(m => ({ role: m.role, content: m.content })), settings.language);
+            const currentSessionState = sessionState;
+            const currentConversationState = currentSessionState.conversationState;
+
+            const companionContext = createCompanionContext(
+                text,
+                currentConversationState,
+                currentSessionState,
+                {
+                    activeSummary: currentSessionState.activeSummary ?? null,
+                    domainDiscovery: null,
+                },
+            );
+
+            const aiText = await getAIResponse(
+                text,
+                messages.map(m => ({ role: m.role, content: m.content })),
+                settings.language,
+                createCompanionPrompt(companionContext),
+            );
 
             const aiMsg: Message = {
                 id: (Date.now() + 1).toString(),

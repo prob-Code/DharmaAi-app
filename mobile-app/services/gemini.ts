@@ -3,6 +3,30 @@ import { Config } from '../config';
 import { supabase } from './supabase';
 import { Language } from '../src/types';
 import { getTranslation } from '../translations';
+import type { CompanionPromptPayload } from './companion/companionPrompt';
+
+function buildRagCompanionContext(
+    companionPrompt?: CompanionPromptPayload | null,
+): Record<string, unknown> | null {
+    if (!companionPrompt) return null;
+
+    const behavior = companionPrompt.systemBehavior;
+    const context = companionPrompt.context;
+
+    return {
+        response_depth: context.responseDepth ?? behavior.defaultResponseDepth,
+        current_topic: context.currentTopic || 'check-in',
+        research_domain: context.researchDomain ?? null,
+        interaction_mode: context.interactionMode ?? 'conversation',
+        user_speaks_more_than_companion: Boolean(behavior.userSpeaksMoreThanCompanion),
+        listen_before_responding: Boolean(behavior.listenBeforeResponding),
+        follow_current_topic: Boolean(behavior.followCurrentTopic),
+        do_not_force_gita: Boolean(behavior.doNotForceGitaWisdom),
+        do_not_diagnose: Boolean(behavior.doNotDiagnoseOrCure),
+        do_not_make_consequential_decisions: Boolean(behavior.doNotMakeConsequentialLifeDecisions),
+        do_not_encourage_dependence: Boolean(behavior.doNotEncourageDependence),
+    };
+}
 
 export async function getEmbedding(text: string): Promise<number[] | null> {
     try {
@@ -22,9 +46,16 @@ export async function getEmbedding(text: string): Promise<number[] | null> {
     }
 }
 
-export async function getAIResponse(prompt: string, history: any[], language: Language = 'en') {
+export async function getAIResponse(
+    prompt: string,
+    history: any[],
+    language: Language = 'en',
+    companionPrompt?: CompanionPromptPayload | null,
+) {
     try {
         const RAGGITA_KEY = Config.RAGGITA_API_KEY;
+        const retrievalQuestion = prompt.trim();
+        const companionContextPayload = buildRagCompanionContext(companionPrompt);
 
         // Check if API key is configured
         if (!RAGGITA_KEY) {
@@ -36,15 +67,21 @@ export async function getAIResponse(prompt: string, history: any[], language: La
 
         console.log("🙏 Sending question to RAGGITA API...");
 
+        const payload: Record<string, unknown> = {
+            question: retrievalQuestion,
+        };
+
+        if (companionContextPayload) {
+            payload.companion_context = companionContextPayload;
+        }
+
         const res = await fetch("https://agentcrafter-rag-gita.hf.space/chat", {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
                 "X-API-Key": RAGGITA_KEY,
             },
-            body: JSON.stringify({
-                question: prompt,
-            }),
+            body: JSON.stringify(payload),
         });
 
         if (!res.ok) {
