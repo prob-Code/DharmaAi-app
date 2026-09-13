@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator, Image, Animated } from 'react-native';
 import { Video } from 'expo-av';
 import * as Speech from 'expo-speech';
@@ -53,6 +53,12 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
     const [isVoiceSpeaking, setIsVoiceSpeaking] = useState(false);
     const ambientVolumeRef = useRef(0);
     const scaleAnim = useRef(new Animated.Value(1)).current;
+    const voiceSoundRef = useRef<any>(null);
+    const activeTtsTurnRef = useRef(0);
+
+    useEffect(() => {
+        voiceSoundRef.current = voiceSound;
+    }, [voiceSound]);
 
     const [sessionState, setSessionState] = useState<SessionOrchestratorState>(() => {
         const initialConversationState = createInitialConversationState({
@@ -691,31 +697,62 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
         }
     }, [settings.soundType]);
 
-    const playVoice = async (text: string, base64Audio?: string | null) => {
-        if (voiceSound) {
-            if (Platform.OS !== 'web' && Audio) {
-                await voiceSound.unloadAsync();
+    const stopCurrentTtsPlayback = useCallback(async () => {
+        const currentVoiceSound = voiceSoundRef.current;
+
+        if (currentVoiceSound && Platform.OS !== 'web' && Audio) {
+            try {
+                await currentVoiceSound.stopAsync();
+            } catch (error) {
+                console.warn('TTS stop warning:', error);
             }
-            setVoiceSound(null);
+
+            try {
+                await currentVoiceSound.unloadAsync();
+            } catch (error) {
+                console.warn('TTS unload warning:', error);
+            }
         }
+
         Speech.stop();
+        setIsVoiceSpeaking(false);
+
+        if (voiceSoundRef.current) {
+            setVoiceSound(null);
+            voiceSoundRef.current = null;
+        }
+    }, []);
+
+    const playVoice = async (text: string, base64Audio?: string | null, ttsTurn?: number) => {
+        const playbackTurn = ttsTurn ?? ++activeTtsTurnRef.current;
+
+        if (playbackTurn !== activeTtsTurnRef.current) {
+            return;
+        }
+
+        if (voiceServiceRef.current && voiceServiceRef.current.getState() === 'RECORDING') {
+            await voiceServiceRef.current.cancel();
+        }
+
+        await stopCurrentTtsPlayback();
+
+        if (playbackTurn !== activeTtsTurnRef.current) {
+            return;
+        }
 
         if (!settings.voiceEnabled) return;
 
-        // Calming voice settings for mental wellness
         const getVoiceSettings = () => {
-            // Speed mapping: very-slow for deep relaxation, slow for calm, normal for regular
             const rateMap = {
-                'very-slow': 0.6,  // Deep meditation pace
-                'slow': 0.75,      // Calm, soothing pace
-                'normal': 0.85     // Slightly slower than default for comfort
+                'very-slow': 0.6,
+                'slow': 0.75,
+                'normal': 0.85
             };
 
-            // Pitch based on voice style - lower pitch is more calming
             const pitchMap = {
-                'gentle': 0.95,    // Soft, nurturing tone
-                'deep': 0.8,       // Deep, grounding voice
-                'soft': 1.0        // Natural, warm tone
+                'gentle': 0.95,
+                'deep': 0.8,
+                'soft': 1.0
             };
 
             return {
@@ -743,13 +780,23 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
                         }
                     }
                 );
+
+                if (playbackTurn !== activeTtsTurnRef.current) {
+                    try {
+                        await newVoice.unloadAsync();
+                    } catch (error) {
+                        console.warn('Stale TTS cleanup warning:', error);
+                    }
+                    return;
+                }
+
+                voiceSoundRef.current = newVoice;
                 setVoiceSound(newVoice);
             } catch (e) {
                 console.log("Failed to play base64, using system TTS", e);
                 Speech.speak(text, getVoiceSettings());
             }
         } else {
-            // Use enhanced calming voice settings
             Speech.speak(text, getVoiceSettings());
         }
     };
@@ -800,15 +847,25 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
             setIsLoading(false);
 
             if (settings.voiceEnabled) {
+                const currentTtsTurn = ++activeTtsTurnRef.current;
+
                 let audioData = await getSarvamTTS(aiText, settings.language, {
                     voiceSpeed: settings.voiceSpeed,
                 });
+
+                if (currentTtsTurn !== activeTtsTurnRef.current) {
+                    return;
+                }
 
                 if (!audioData) {
                     audioData = await getGeminiTTS(aiText, settings.voiceStyle, settings.language);
                 }
 
-                playVoice(aiText, audioData);
+                if (currentTtsTurn !== activeTtsTurnRef.current) {
+                    return;
+                }
+
+                await playVoice(aiText, audioData, currentTtsTurn);
             }
 
         } catch (error) {
@@ -847,13 +904,20 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
         }
 
         return () => {
-            voiceServiceRef.current?.cancel();
-            voiceServiceRef.current = null;
+            activeTtsTurnRef.current += 1;
+            void stopCurrentTtsPlayback();
+            if (voiceServiceRef.current) {
+                void voiceServiceRef.current.cancel();
+                voiceServiceRef.current = null;
+            }
         };
-    }, []);
+    }, [stopCurrentTtsPlayback]);
 
     const startVoiceRecording = async () => {
         if (!voiceServiceRef.current || isLoading) return;
+
+        activeTtsTurnRef.current += 1;
+        await stopCurrentTtsPlayback();
         await voiceServiceRef.current.startRecording();
     };
 
