@@ -829,12 +829,13 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
                     domainDiscovery: null,
                 },
             );
+            const companionPrompt = createCompanionPrompt(companionContext);
 
             const aiText = await getAIResponse(
                 text,
                 messages.map(m => ({ role: m.role, content: m.content })),
                 settings.language,
-                createCompanionPrompt(companionContext),
+                companionPrompt,
             );
 
             const aiMsg: Message = {
