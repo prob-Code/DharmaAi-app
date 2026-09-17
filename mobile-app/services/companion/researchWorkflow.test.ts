@@ -1,6 +1,6 @@
 import {
-  createInitialDomainDiscoveryState,
   confirmCandidateDomain,
+  createInitialDomainDiscoveryState,
   setCandidateDomain,
 } from './domainDiscovery';
 import { createInitialConversationState } from './conversationState';
@@ -12,6 +12,7 @@ import {
   confirmResearchDomain,
   createInitialResearchWorkflowState,
   startResearchSessionOne,
+  type BaselineAssessmentRecord,
 } from './researchWorkflow';
 
 function assert(condition: boolean, message: string): void {
@@ -21,7 +22,9 @@ function assert(condition: boolean, message: string): void {
 }
 
 function createSessionOneState() {
-  const conversationState = createInitialConversationState();
+  const conversationState = createInitialConversationState({
+    researchDomain: 'work-life balance',
+  });
   const state = createSessionOrchestratorState(1, null, conversationState, {
     conversationState,
   });
@@ -31,13 +34,6 @@ function createSessionOneState() {
   }
 
   return state;
-}
-
-function createWorkflowState() {
-  return createInitialResearchWorkflowState(
-    createSessionOneState(),
-    createInitialDomainDiscoveryState(),
-  );
 }
 
 function createConfirmedDomainDiscoveryState() {
@@ -50,81 +46,79 @@ function createConfirmedDomainDiscoveryState() {
   return confirmCandidateDomain(candidateState);
 }
 
-function confirmDomainAndBeginBaseline() {
-  const started = beginResearchWorkflow(createWorkflowState());
-  if (started === null) {
-    throw new Error('Expected research workflow to begin');
-  }
-
-  const domainConfirmed = confirmResearchDomain(
-    started,
-    createConfirmedDomainDiscoveryState(),
-  );
-  if (domainConfirmed === null) {
-    throw new Error('Expected domain confirmation to succeed');
-  }
-
-  const baselinePending = beginBaselineAssessment(domainConfirmed);
-  if (baselinePending === null) {
-    throw new Error('Expected baseline assessment to begin');
-  }
-
-  return baselinePending;
+function createBaselineRecord(): BaselineAssessmentRecord {
+  return {
+    instrumentId: 'baseline-pre',
+    instrumentVersion: 'v1',
+    researchDomain: 'work-life balance',
+    completedAt: '2026-09-15T00:00:00.000Z',
+    role: 'pre',
+  };
 }
 
 export function runResearchWorkflowTests(): void {
-  const begun = beginResearchWorkflow(createWorkflowState());
+  const workflowStart = createInitialResearchWorkflowState();
+  const begun = beginResearchWorkflow(workflowStart);
   assert(begun?.phase === 'DOMAIN_DISCOVERY', 'workflow should begin in domain discovery');
 
   const invalidDomain = confirmResearchDomain(
     begun!,
     createInitialDomainDiscoveryState(),
   );
-  assert(invalidDomain === null, 'unconfirmed domain should not advance workflow');
+  assert(invalidDomain === null, 'invalid domain confirmation should be blocked');
 
-  const domainConfirmed = confirmResearchDomain(
-    begun!,
-    createConfirmedDomainDiscoveryState(),
-  );
-  assert(domainConfirmed?.phase === 'DOMAIN_CONFIRMED', 'confirmed domain should advance workflow');
+  const validConfirmedDomain = createConfirmedDomainDiscoveryState();
+  const domainConfirmed = confirmResearchDomain(begun!, validConfirmedDomain);
+  assert(domainConfirmed?.phase === 'DOMAIN_CONFIRMED', 'valid domain confirmation should advance workflow');
+  assert(domainConfirmed?.confirmedResearchDomain === 'work-life balance', 'confirmed domain should freeze by value');
 
-  assert(
-    completeBaselineAssessment(domainConfirmed!) === null,
-    'baseline should not complete before baseline assessment begins',
+  const changedDomain = createConfirmedDomainDiscoveryState();
+  const changedDomainAttempt = confirmResearchDomain(
+    domainConfirmed!,
+    {
+      ...changedDomain,
+      fixedResearchDomain: 'different domain',
+    },
   );
+  assert(changedDomainAttempt === null, 'confirmed domain should not change after confirmation');
+
+  const baselineBeforeDomain = completeBaselineAssessment(
+    domainConfirmed!,
+    createBaselineRecord(),
+  );
+  assert(baselineBeforeDomain === null, 'baseline must be blocked before baseline assessment begins');
 
   const baselinePending = beginBaselineAssessment(domainConfirmed!);
-  assert(baselinePending?.phase === 'BASELINE_PENDING', 'baseline should become pending');
+  assert(baselinePending?.phase === 'BASELINE_PENDING', 'baseline should become pending after domain confirmation');
 
-  const baselineCompleted = completeBaselineAssessment(baselinePending!);
-  assert(baselineCompleted?.phase === 'BASELINE_COMPLETED', 'completed baseline should advance workflow');
-
-  const sessionStarted = startResearchSessionOne(baselineCompleted!, 'standard');
-  assert(sessionStarted?.phase === 'SESSION_1_STARTED', 'both prerequisites should start Session 1');
-  assert(sessionStarted?.sessionState.sessionPhase === 'OPENING', 'Session 1 should enter OPENING');
-
-  assert(
-    startResearchSessionOne(sessionStarted!, 'extended') === null,
-    'Session 1 should not start twice',
+  const validBaseline = completeBaselineAssessment(
+    baselinePending!,
+    createBaselineRecord(),
   );
+  assert(validBaseline?.phase === 'BASELINE_COMPLETED', 'valid baseline record should advance workflow');
+  assert(validBaseline?.baselineAssessment?.researchDomain === 'work-life balance', 'baseline record should carry the frozen research domain');
+
+  const sessionStarted = startResearchSessionOne(
+    validBaseline!,
+    createSessionOneState(),
+    'standard',
+  );
+  assert(sessionStarted?.workflowState.phase === 'SESSIONS_ACTIVE', 'Session 1 should start only after valid baseline');
+  assert(sessionStarted?.sessionState.sessionPhase === 'OPENING', 'Session 1 should enter the OPENING phase');
 
   assert(
-  beginResearchWorkflow(begun!) === null,
-  'workflow should not begin twice',
-  );
-  assert(
-    confirmResearchDomain(createWorkflowState(), createConfirmedDomainDiscoveryState()) === null,
-    'domain confirmation should not skip workflow start',
+  startResearchSessionOne(
+    validBaseline!,
+    sessionStarted!.sessionState,
+    'extended',
+  ) === null,
+  'Session 1 should not start twice',
   );
 
   const activeState = startSession(createSessionOneState(), 'standard');
-  const activeWorkflow = {
-    ...baselineCompleted!,
-    sessionState: activeState,
-  };
   assert(
-    startResearchSessionOne(activeWorkflow, 'standard') === null,
-    'active Session 1 should block a restart',
+    startResearchSessionOne(validBaseline!, activeState, 'standard') === null,
+    'already active session should block restart',
   );
 }
 

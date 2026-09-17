@@ -1,9 +1,6 @@
 import type { DomainDiscoveryState } from './domainDiscovery';
 import type { UserTimeBudget } from './conversationState';
-import {
-  startSessionOne,
-} from './researchLifecycle';
-import type { SessionOrchestratorState } from './sessionOrchestrator';
+import { startSession, type SessionOrchestratorState } from './sessionOrchestrator';
 
 export type ResearchWorkflowPhase =
   | 'NOT_STARTED'
@@ -11,13 +8,20 @@ export type ResearchWorkflowPhase =
   | 'DOMAIN_CONFIRMED'
   | 'BASELINE_PENDING'
   | 'BASELINE_COMPLETED'
-  | 'SESSION_1_STARTED';
+  | 'SESSIONS_ACTIVE';
+
+export interface BaselineAssessmentRecord {
+  instrumentId: string;
+  instrumentVersion: string;
+  researchDomain: string;
+  completedAt: string;
+  role: 'pre';
+}
 
 export interface ResearchWorkflowState {
   phase: ResearchWorkflowPhase;
-  domainDiscovery: DomainDiscoveryState;
-  baselineAssessmentComplete: boolean;
-  sessionState: SessionOrchestratorState;
+  confirmedResearchDomain: string | null;
+  baselineAssessment: BaselineAssessmentRecord | null;
 }
 
 function hasConfirmedResearchDomain(
@@ -31,15 +35,11 @@ function hasConfirmedResearchDomain(
   );
 }
 
-export function createInitialResearchWorkflowState(
-  sessionState: SessionOrchestratorState,
-  domainDiscovery: DomainDiscoveryState,
-): ResearchWorkflowState {
+export function createInitialResearchWorkflowState(): ResearchWorkflowState {
   return {
     phase: 'NOT_STARTED',
-    domainDiscovery,
-    baselineAssessmentComplete: false,
-    sessionState,
+    confirmedResearchDomain: null,
+    baselineAssessment: null,
   };
 }
 
@@ -60,21 +60,25 @@ export function confirmResearchDomain(
   state: ResearchWorkflowState,
   domainDiscovery: DomainDiscoveryState,
 ): ResearchWorkflowState | null {
-  if (state.phase !== 'DOMAIN_DISCOVERY' || !hasConfirmedResearchDomain(domainDiscovery)) {
+  if (
+    state.phase !== 'DOMAIN_DISCOVERY' ||
+    !hasConfirmedResearchDomain(domainDiscovery) ||
+    (state.confirmedResearchDomain !== null && state.confirmedResearchDomain !== domainDiscovery.fixedResearchDomain)
+  ) {
     return null;
   }
 
   return {
     ...state,
     phase: 'DOMAIN_CONFIRMED',
-    domainDiscovery,
+    confirmedResearchDomain: domainDiscovery.fixedResearchDomain,
   };
 }
 
 export function beginBaselineAssessment(
   state: ResearchWorkflowState,
 ): ResearchWorkflowState | null {
-  if (state.phase !== 'DOMAIN_CONFIRMED') {
+  if (state.phase !== 'DOMAIN_CONFIRMED' || state.confirmedResearchDomain === null) {
     return null;
   }
 
@@ -86,40 +90,52 @@ export function beginBaselineAssessment(
 
 export function completeBaselineAssessment(
   state: ResearchWorkflowState,
+  baselineAssessment: BaselineAssessmentRecord,
 ): ResearchWorkflowState | null {
-  if (state.phase !== 'BASELINE_PENDING') {
+  if (
+    state.phase !== 'BASELINE_PENDING' ||
+    state.confirmedResearchDomain === null ||
+    baselineAssessment.role !== 'pre' ||
+    baselineAssessment.researchDomain !== state.confirmedResearchDomain
+  ) {
     return null;
   }
 
   return {
     ...state,
     phase: 'BASELINE_COMPLETED',
-    baselineAssessmentComplete: true,
+    baselineAssessment,
   };
 }
 
 export function startResearchSessionOne(
   state: ResearchWorkflowState,
+  sessionState: SessionOrchestratorState,
   participantAvailableTime: UserTimeBudget,
-): ResearchWorkflowState | null {
-  if (state.phase !== 'BASELINE_COMPLETED' || !state.baselineAssessmentComplete) {
+): { workflowState: ResearchWorkflowState; sessionState: SessionOrchestratorState } | null {
+  if (
+    state.phase !== 'BASELINE_COMPLETED' ||
+    state.confirmedResearchDomain === null ||
+    state.baselineAssessment === null ||
+    state.baselineAssessment.researchDomain !== state.confirmedResearchDomain ||
+    state.baselineAssessment.role !== 'pre' ||
+    sessionState.currentSessionNumber !== 1 ||
+    sessionState.sessionPhase !== 'NOT_STARTED'
+  ) {
     return null;
   }
 
-  const nextSessionState = startSessionOne(
-    state.sessionState,
-    state.domainDiscovery,
-    state.baselineAssessmentComplete,
-    participantAvailableTime,
-  );
+  const nextSessionState = startSession(sessionState, participantAvailableTime);
 
-  if (nextSessionState === null) {
+  if (nextSessionState.sessionPhase !== 'OPENING') {
     return null;
   }
 
   return {
-    ...state,
-    phase: 'SESSION_1_STARTED',
+    workflowState: {
+      ...state,
+      phase: 'SESSIONS_ACTIVE',
+    },
     sessionState: nextSessionState,
   };
 }
