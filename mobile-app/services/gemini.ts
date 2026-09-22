@@ -31,7 +31,7 @@ function buildRagCompanionContext(
 export async function getEmbedding(text: string): Promise<number[] | null> {
     try {
         const API_KEY = Config.GEMINI_API_KEY;
-        if (!API_KEY || API_KEY.includes('AIzaSyCq-QbQ9t0H2o4VETWNFkJ99tDjitn281k')) return null;
+        if (!API_KEY) return null;
 
         const ai = new GoogleGenAI({ apiKey: API_KEY });
         const response = await ai.models.embedContent({
