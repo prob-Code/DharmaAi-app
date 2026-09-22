@@ -40,12 +40,8 @@ const AppContent = () => {
   const [showSettings, setShowSettings] = useState(false);
   const lastAuthCallbackUrlRef = useRef<string | null>(null);
 
-  // Auto-skip authentication: go straight to the app as a guest
-  useEffect(() => {
-    if (!authLoading && !session) {
-      skipAuth();
-    }
-  }, [authLoading, session]);
+  // Show auth screen if user is not logged in (no auto-skip in production)
+  // Users must authenticate via Google OAuth or email/password
 
   // Handle Deep Linking for Auth
   useEffect(() => {
@@ -196,13 +192,9 @@ const AppContent = () => {
     );
   }
 
-  // While auto-skip is processing, show loading
+  // No session — show authentication screen
   if (!session) {
-    return (
-      <View style={[styles.loadingContainer, { backgroundColor: theme.colors.background }]}>
-        <ActivityIndicator size="large" color={theme.colors.accent} />
-      </View>
-    );
+    return <AuthScreen />;
   }
 
   const renderContent = () => {

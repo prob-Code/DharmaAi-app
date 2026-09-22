@@ -506,15 +506,8 @@ export const AuthScreen = () => {
                         </Text>
                     </TouchableOpacity>
 
-                    <TouchableOpacity
-                        style={[styles.switchButton, { marginTop: 16 }]}
-                        onPress={skipAuth}
-                        disabled={loading}
-                    >
-                        <Text style={[styles.switchText, { color: COLORS.muted, fontSize: 12, textDecorationLine: 'underline' }]}>
-                            Bypass Authentication (Development Mode)
-                        </Text>
-                    </TouchableOpacity>
+
+
 
                 </ScrollView>
             </KeyboardAvoidingView>

@@ -13,9 +13,23 @@
                 "buildType": "apk"
             }
         },
-        "production": {}
+        "production": {
+            "android": {
+                "buildType": "app-bundle"
+            },
+            "env": {
+                "EXPO_PUBLIC_RAGGITA_API_KEY": "rg_gita_d8b3c9f2a71e4a5091bfbc",
+                "EXPO_PUBLIC_STRESS_API_KEY": "stress_dharma_2026_securef2a71e4a5091bfbc",
+                "EXPO_PUBLIC_STRESS_API_URL": "https://agentcrafter-dharmaai-stress-analyzer.hf.space"
+            }
+        }
     },
     "submit": {
-        "production": {}
+        "production": {
+            "android": {
+                "serviceAccountKeyPath": "./play-store-key.json",
+                "track": "internal"
+            }
+        }
     }
-}
+}

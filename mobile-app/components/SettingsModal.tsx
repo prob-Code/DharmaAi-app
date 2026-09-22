@@ -1,12 +1,16 @@
-import React from 'react';
-import { View, Text, Switch, TouchableOpacity, Modal, StyleSheet, ScrollView, Alert } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, Switch, TouchableOpacity, Modal, StyleSheet, ScrollView, Alert, ActivityIndicator } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { BlurView } from 'expo-blur';
-import { X, Check, RotateCcw } from 'lucide-react-native';
+import { X, Check, RotateCcw, Shield, FileText, Trash2 } from 'lucide-react-native';
 import { UserSettings, SoundType, Language } from '../src/types';
 import { getTranslation } from '../translations';
 import { COLORS } from '../constants';
 import { useTheme } from '../context/ThemeContext';
+import { useAuth } from '../context/AuthContext';
+import { authService } from '../services/supabase';
+import { PrivacyPolicy } from './legal/PrivacyPolicy';
+import { TermsOfService } from './legal/TermsOfService';
 
 interface Props {
     visible: boolean;
@@ -19,6 +23,10 @@ interface Props {
 
 export const SettingsModal: React.FC<Props> = ({ visible, onClose, settings, onUpdateSettings, onReset, onSignOut }) => {
     const { theme, mode, setMode } = useTheme();
+    const { user } = useAuth();
+    const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(false);
+    const [showTermsOfService, setShowTermsOfService] = useState(false);
+    const [isDeletingAccount, setIsDeletingAccount] = useState(false);
 
     const handleResetApp = () => {
         Alert.alert(
@@ -44,6 +52,68 @@ export const SettingsModal: React.FC<Props> = ({ visible, onClose, settings, onU
             ]
         );
     };
+
+    const handleDeleteAccount = () => {
+        // Check if user is a guest
+        if (user?.id === 'guest-user') {
+            Alert.alert(
+                'Guest Account',
+                'You are using a guest account. Please sign in to manage your account.',
+                [{ text: 'OK' }]
+            );
+            return;
+        }
+
+        Alert.alert(
+            '⚠️ Delete Account',
+            'This will permanently delete your account and ALL associated data including:\n\n• Your profile\n• All posts and comments\n• Chat history\n• Stress reports\n• Followers and following\n\nThis action CANNOT be undone.',
+            [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                    text: 'Delete Forever',
+                    style: 'destructive',
+                    onPress: async () => {
+                        setIsDeletingAccount(true);
+                        try {
+                            await authService.deleteAccount();
+                            setIsDeletingAccount(false);
+                            onClose();
+                            Alert.alert(
+                                'Account Deleted',
+                                'Your account and all data have been permanently deleted.',
+                                [{ text: 'OK' }]
+                            );
+                        } catch (error: any) {
+                            setIsDeletingAccount(false);
+                            Alert.alert(
+                                'Error',
+                                error.message || 'Failed to delete account. Please try again.',
+                                [{ text: 'OK' }]
+                            );
+                        }
+                    }
+                }
+            ]
+        );
+    };
+
+    // Show Privacy Policy fullscreen
+    if (showPrivacyPolicy) {
+        return (
+            <Modal visible={visible} transparent={false} animationType="slide">
+                <PrivacyPolicy onClose={() => setShowPrivacyPolicy(false)} />
+            </Modal>
+        );
+    }
+
+    // Show Terms of Service fullscreen
+    if (showTermsOfService) {
+        return (
+            <Modal visible={visible} transparent={false} animationType="slide">
+                <TermsOfService onClose={() => setShowTermsOfService(false)} />
+            </Modal>
+        );
+    }
 
     return (
         <Modal visible={visible} transparent animationType="slide">
@@ -193,10 +263,49 @@ export const SettingsModal: React.FC<Props> = ({ visible, onClose, settings, onU
                             </View>
                         </View>
 
+                        {/* ─── Legal Section ─── */}
+                        <View style={styles.legalSection}>
+                            <Text style={[styles.legalSectionTitle, { color: theme.colors.muted }]}>LEGAL</Text>
+                            <TouchableOpacity
+                                style={styles.legalButton}
+                                onPress={() => setShowPrivacyPolicy(true)}
+                            >
+                                <Shield color={theme.colors.accent} size={18} />
+                                <Text style={[styles.legalButtonText, { color: theme.colors.text }]}>Privacy Policy</Text>
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                                style={styles.legalButton}
+                                onPress={() => setShowTermsOfService(true)}
+                            >
+                                <FileText color={theme.colors.accent} size={18} />
+                                <Text style={[styles.legalButtonText, { color: theme.colors.text }]}>Terms of Service</Text>
+                            </TouchableOpacity>
+                        </View>
+
                         {/* Reset App Button */}
                         <TouchableOpacity style={styles.resetButton} onPress={handleResetApp}>
                             <RotateCcw color="#ff6b6b" size={20} />
                             <Text style={styles.resetText}>Reset App & Restart Onboarding</Text>
+                        </TouchableOpacity>
+
+                        {/* Delete Account Button (Required by Google Play Policy) */}
+                        <TouchableOpacity
+                            style={styles.deleteAccountButton}
+                            onPress={handleDeleteAccount}
+                            disabled={isDeletingAccount}
+                        >
+                            {isDeletingAccount ? (
+                                <View style={styles.deletingRow}>
+                                    <ActivityIndicator color="#ff4444" size="small" />
+                                    <Text style={styles.deleteAccountText}>Deleting account...</Text>
+                                </View>
+                            ) : (
+                                <>
+                                    <Trash2 color="#ff4444" size={20} />
+                                    <Text style={styles.deleteAccountText}>Delete Account</Text>
+                                </>
+                            )}
                         </TouchableOpacity>
 
                         {/* Sign Out Button */}
@@ -221,6 +330,11 @@ export const SettingsModal: React.FC<Props> = ({ visible, onClose, settings, onU
                                 <Text style={styles.signOutText}>Sign Out</Text>
                             </TouchableOpacity>
                         )}
+
+                        {/* App Version */}
+                        <Text style={[styles.versionText, { color: theme.colors.muted }]}>
+                            DharmaAI v1.0.0
+                        </Text>
 
                     </ScrollView>
                 </View>
@@ -325,6 +439,29 @@ const styles = StyleSheet.create({
     gridTextActive: {
         color: COLORS.accent,
     },
+    legalSection: {
+        marginTop: 16,
+        marginBottom: 20,
+        paddingTop: 16,
+        borderTopWidth: 1,
+        borderTopColor: 'rgba(255, 255, 255, 0.08)',
+    },
+    legalSectionTitle: {
+        fontSize: 11,
+        fontWeight: '700',
+        letterSpacing: 2,
+        marginBottom: 12,
+    },
+    legalButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 14,
+        gap: 12,
+    },
+    legalButtonText: {
+        fontSize: 15,
+        fontWeight: '500',
+    },
     resetButton: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -332,8 +469,8 @@ const styles = StyleSheet.create({
         backgroundColor: 'rgba(255, 107, 107, 0.1)',
         padding: 16,
         borderRadius: 12,
-        marginTop: 20,
-        marginBottom: 20,
+        marginTop: 8,
+        marginBottom: 12,
         borderWidth: 1,
         borderColor: 'rgba(255, 107, 107, 0.3)',
         gap: 10,
@@ -343,16 +480,44 @@ const styles = StyleSheet.create({
         fontSize: 14,
         fontWeight: '600',
     },
+    deleteAccountButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: 'rgba(255, 68, 68, 0.08)',
+        padding: 16,
+        borderRadius: 12,
+        marginBottom: 12,
+        borderWidth: 1,
+        borderColor: 'rgba(255, 68, 68, 0.2)',
+        gap: 10,
+    },
+    deleteAccountText: {
+        color: '#ff4444',
+        fontSize: 14,
+        fontWeight: '600',
+    },
+    deletingRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+    },
     signOutButton: {
         alignItems: 'center',
         paddingVertical: 15,
         borderTopWidth: 1,
         borderTopColor: 'rgba(255, 255, 255, 0.1)',
-        marginTop: 10,
+        marginTop: 4,
     },
     signOutText: {
         color: COLORS.muted,
         fontSize: 15,
         fontWeight: '500',
-    }
+    },
+    versionText: {
+        textAlign: 'center',
+        fontSize: 11,
+        marginTop: 16,
+        marginBottom: 30,
+    },
 });
