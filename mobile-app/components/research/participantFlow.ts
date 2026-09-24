@@ -2,16 +2,15 @@ import type { ResearchSnapshot } from '../../services/research/researchControlle
 import {
   resolveResearchGateStep,
   type ResearchGateStep,
-} from './researchGateContract';
+} from '../../services/research/researchGate';
 
 // Presentation adapter over the engineering research gate.
 //
-// PROTOCOL TRUTH: all step resolution is delegated to the single vendored
-// engineering resolver in researchGateContract.ts (clone of commit 9cf2d7e,
-// services/research/researchGate.ts). This file never re-decides protocol
-// state — it only translates a resolved ResearchGateStep into the finer
-// presentation stage the UI renders, splitting coarse steps on presentation
-// grounds only.
+// PROTOCOL TRUTH: all step resolution is delegated to the single engineering
+// resolver in services/research/researchGate.ts. This file never re-decides
+// protocol state — it only translates a resolved ResearchGateStep into the
+// finer presentation stage the UI renders, splitting coarse steps on
+// presentation grounds only.
 //
 // ResearchHydrationStatus is kept here as the local mirror of the engineering
 // useParticipantResearch type so the UI layer stays decoupled from the

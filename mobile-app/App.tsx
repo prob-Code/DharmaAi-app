@@ -10,7 +10,8 @@ import { Reflections } from './components/Reflections';
 import { Videos } from './components/Videos';
 import { SettingsModal } from './components/SettingsModal';
 import { AuthScreen } from './components/auth/AuthScreen';
-import { ResearchGate } from './components/research/ResearchGate';
+import { ResearchExperience } from './components/research/ResearchExperience';
+import { createResearchProtocolActions } from './components/research/researchProtocolActions';
 import { InAppNotificationPopup } from './components/InAppNotificationPopup';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { NotificationsProvider } from './context/NotificationsContext';
@@ -31,6 +32,16 @@ const DEFAULT_SETTINGS: UserSettings = {
   voiceStyle: 'soft',
   volume: 0.5,
 };
+
+function researchErrorMessage(error: unknown): string | null {
+  if (error === null || error === undefined) {
+    return null;
+  }
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
+}
 
 const AppContent = () => {
   const { session, loading: authLoading, user, signOut, skipAuth } = useAuth();
@@ -208,12 +219,13 @@ const AppContent = () => {
       return <Videos settings={settings} />;
     }
     return (
-      <ResearchGate
+      <ResearchExperience
         status={research.status}
         snapshot={research.snapshot}
         controller={research.controller}
-        error={research.error}
+        error={researchErrorMessage(research.error)}
         onRetry={research.retry}
+        actions={createResearchProtocolActions(research.controller, research.snapshot)}
       >
         {research.snapshot === null ? null : (
           <ChatInterface
@@ -223,7 +235,7 @@ const AppContent = () => {
             sessionState={research.snapshot.session}
           />
         )}
-      </ResearchGate>
+      </ResearchExperience>
     );
   };
 

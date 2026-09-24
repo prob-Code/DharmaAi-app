@@ -31,7 +31,7 @@ export {
 export {
   resolveResearchGateStep,
   type ResearchGateStep,
-} from './researchGateContract';
+} from '../../services/research/researchGate';
 export { ScreeningPendingScreen } from './ScreeningPendingScreen';
 export { SessionEntryScreen } from './SessionEntryScreen';
 export { SessionLockedScreen } from './SessionLockedScreen';
