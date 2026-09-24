@@ -1,7 +1,6 @@
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator, Image, Animated } from 'react-native';
-import { Video } from 'expo-av';
+import { View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator, Image } from 'react-native';
 import * as Speech from 'expo-speech';
 import { BlurView } from 'expo-blur';
 import { Mic, Send, Music, Volume2, VolumeX, Settings, Brain } from 'lucide-react-native';
@@ -10,14 +9,15 @@ import { getTranslation } from '../translations';
 import { getAIResponse, getGeminiTTS } from '../services/gemini';
 import { getSarvamTTS } from '../services/sarvam';
 import { VoiceInputService, VoiceState } from '../services/voiceInput';
-import { getSoundAsset, COLORS, KRISHNA_IMAGE, KRISHNA_VIDEO_URL, testAllSounds } from '../constants';
+import { getSoundAsset, COLORS, KRISHNA_IMAGE, testAllSounds } from '../constants';
 import { useTheme } from '../context/ThemeContext';
 import { analyzeStress, StressAnalysisResult } from '../services/stressAnalysis';
 import { StressReport } from './StressReport';
+import { EnvironmentLayer } from './environment/EnvironmentLayer';
 import type { SessionOrchestratorState } from '../services/companion/sessionOrchestrator';
 import { createCompanionContext } from '../services/companion/companionContext';
 import { createCompanionPrompt } from '../services/companion/companionPrompt';
-import { resetTtsPresentationSignal, signalTtsInterruption } from './voice/ttsPresentationSignal';
+import { resetTtsPresentationSignal, signalTtsInterruption, useTtsPresentationSignal } from './voice/ttsPresentationSignal';
 
 // Import Audio only for native platforms to avoid web conflicts
 let Audio: any = null;
@@ -46,10 +46,9 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
     const [sound, setSound] = useState<any>(null);
     const [voiceSound, setVoiceSound] = useState<any>(null);
     const [isAmbientPlaying, setIsAmbientPlaying] = useState(true); // Auto-play background sound
-    const [krishnaOpacity] = useState(new Animated.Value(0));
     const [isVoiceSpeaking, setIsVoiceSpeaking] = useState(false);
+    const ttsPresentationPhase = useTtsPresentationSignal();
     const ambientVolumeRef = useRef(0);
-    const scaleAnim = useRef(new Animated.Value(1)).current;
     const voiceSoundRef = useRef<any>(null);
     const activeTtsTurnRef = useRef(0);
 
@@ -67,7 +66,6 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
 
     // Web audio ref for HTML5 Audio API
     const webAudioRef = useRef<HTMLAudioElement | null>(null);
-    const webVideoRef = useRef<HTMLVideoElement | null>(null);
 
     // Memoize dynamic styles based on theme
     const dynamicStyles = useMemo(() => ({
@@ -155,50 +153,6 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
     }, [settings.language]);
 
 
-
-    // Avatar Visual Effect: Pulse when thinking or speaking
-    useEffect(() => {
-        // Show avatar when explicitly enabled, OR temporarily show when thinking/speaking
-        const shouldShow = settings.krishnaMode || isLoading || isVoiceSpeaking;
-
-        Animated.timing(krishnaOpacity, {
-            toValue: shouldShow ? 1.0 : 0.0,
-            duration: 500,
-            useNativeDriver: true,
-        }).start();
-
-        // Handle Web video playback specifically to bypass browser autoplay restrictions
-        if (Platform.OS === 'web' && webVideoRef.current) {
-            if (shouldShow) {
-                webVideoRef.current.muted = true;
-                webVideoRef.current.play().catch(e => console.log("📹 [WEB] Background video play failed:", e));
-            } else {
-                webVideoRef.current.pause();
-            }
-        }
-
-        if (isVoiceSpeaking) {
-            // Speaking indicator: Fast heartbeat / talking pulse
-            Animated.loop(
-                Animated.sequence([
-                    Animated.timing(scaleAnim, { toValue: 1.04, duration: 250, useNativeDriver: true }),
-                    Animated.timing(scaleAnim, { toValue: 1.0, duration: 250, useNativeDriver: true })
-                ])
-            ).start();
-        } else if (isLoading) {
-            // Thinking indicator: Slow deep breathing
-            Animated.loop(
-                Animated.sequence([
-                    Animated.timing(scaleAnim, { toValue: 1.02, duration: 1000, useNativeDriver: true }),
-                    Animated.timing(scaleAnim, { toValue: 1.0, duration: 1000, useNativeDriver: true })
-                ])
-            ).start();
-        } else {
-            // Reset scale when idle
-            scaleAnim.stopAnimation();
-            Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true }).start();
-        }
-    }, [isLoading, settings.krishnaMode, isVoiceSpeaking]);
 
     // ==========================================
     // AUDIO CONFIGURATION (Mental Wellness Optimized)
@@ -952,57 +906,14 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
 
     return (
         <View style={[styles.container, dynamicStyles.containerBg]}>
-            {/* Krishna Background Layer - Centered */}
-            <View style={StyleSheet.absoluteFill} pointerEvents="none">
-                <View style={[styles.centerContent, { marginTop: -60 }]}>
-                    <Animated.View style={{ 
-                        opacity: krishnaOpacity, 
-                        transform: [{ scale: scaleAnim }],
-                        alignItems: 'center', 
-                        justifyContent: 'center',
-                        width: '100%',
-                        height: '100%'
-                    }}>
-                        
-                        {/* Platform-specific rendering */}
-                        {Platform.OS === 'web' ? (
-                            // Web: Use HTML5 video as full background
-                            <video
-                                ref={webVideoRef}
-                                autoPlay
-                                muted
-                                loop
-                                playsInline
-                                style={{
-                                    position: 'absolute',
-                                    width: '100%',
-                                    height: '100%',
-                                    objectFit: 'cover',
-                                    zIndex: 1
-                                } as any}
-                                onError={() => console.error('[ChatInterface] Video failed to load:', KRISHNA_VIDEO_URL)}
-                            >
-                                <source src={KRISHNA_VIDEO_URL} type="video/mp4" />
-                            </video>
-                        ) : (
-                            // Mobile: Use video component
-                            <Video
-                                source={{ uri: KRISHNA_VIDEO_URL }}
-                                rate={1.0}
-                                volume={0}
-                                isMuted={true}
-                                isLooping={true}
-                                shouldPlay={settings.krishnaMode || isLoading || isVoiceSpeaking}
-                                style={{...styles.krishnaImage, position: 'absolute', width: '100%', height: '100%'} as any}
-                                resizeMode={"cover" as any}
-                            />
-                        )}
-                        
-                        {/* Overlay for better text contrast */}
-                        <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.isDark ? 'rgba(0,0,0,0.3)' : 'rgba(255,255,255,0.15)', zIndex: 2 }]} />
-                    </Animated.View>
-                </View>
-            </View>
+            {/* ANANTA Companion environment — replaces the Krishna/video presence layer */}
+            <EnvironmentLayer
+                listening={voiceState === 'RECORDING'}
+                processing={isLoading || voiceState === 'PROCESSING'}
+                speaking={isVoiceSpeaking}
+                interrupted={ttsPresentationPhase !== 'normal'}
+                hasConversation={messages.length > 0}
+            />
 
             <KeyboardAvoidingView
                 behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
