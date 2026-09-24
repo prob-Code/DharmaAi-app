@@ -17,6 +17,7 @@ import { StressReport } from './StressReport';
 import type { SessionOrchestratorState } from '../services/companion/sessionOrchestrator';
 import { createCompanionContext } from '../services/companion/companionContext';
 import { createCompanionPrompt } from '../services/companion/companionPrompt';
+import { resetTtsPresentationSignal, signalTtsInterruption } from './voice/ttsPresentationSignal';
 
 // Import Audio only for native platforms to avoid web conflicts
 let Audio: any = null;
@@ -681,6 +682,10 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
     const stopCurrentTtsPlayback = useCallback(async () => {
         const currentVoiceSound = voiceSoundRef.current;
 
+        if (currentVoiceSound) {
+            signalTtsInterruption();
+        }
+
         if (currentVoiceSound && Platform.OS !== 'web' && Audio) {
             try {
                 await currentVoiceSound.stopAsync();
@@ -708,6 +713,7 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
         const playbackTurn = ttsTurn ?? ++activeTtsTurnRef.current;
 
         if (playbackTurn !== activeTtsTurnRef.current) {
+            signalTtsInterruption();
             return;
         }
 
@@ -718,6 +724,7 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
         await stopCurrentTtsPlayback();
 
         if (playbackTurn !== activeTtsTurnRef.current) {
+            signalTtsInterruption();
             return;
         }
 
@@ -763,6 +770,7 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
                 );
 
                 if (playbackTurn !== activeTtsTurnRef.current) {
+                    signalTtsInterruption();
                     try {
                         await newVoice.unloadAsync();
                     } catch (error) {
@@ -888,6 +896,7 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
         return () => {
             activeTtsTurnRef.current += 1;
             void stopCurrentTtsPlayback();
+            resetTtsPresentationSignal();
             if (voiceServiceRef.current) {
                 void voiceServiceRef.current.cancel();
                 voiceServiceRef.current = null;
@@ -897,6 +906,11 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
 
     const startVoiceRecording = async () => {
         if (!voiceServiceRef.current || isLoading) return;
+
+        const hadActivePlayback = Boolean(voiceSoundRef.current) || isVoiceSpeaking;
+        if (hadActivePlayback) {
+            signalTtsInterruption();
+        }
 
         activeTtsTurnRef.current += 1;
         await stopCurrentTtsPlayback();
