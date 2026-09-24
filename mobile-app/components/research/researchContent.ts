@@ -127,4 +127,66 @@ export const researchCopy = {
       'What you shared matters, and it stays with us only as part of this study. The Companion remains — you can always return, continue the conversation, and pick up wherever you left off.',
     continueLabel: 'Return to the Companion',
   },
+  introduction: {
+    eyebrow: 'Welcome',
+    title: 'A quiet place to begin',
+    body:
+      'This is a short, structured time built around conversation. Nothing here will feel like a hospital or a classroom — it is simply a space for you, at your own pace.',
+    points: [
+      'A few short check-ins before we start.',
+      'Three focused conversations, one at a time.',
+      'You can pause and return whenever you wish.',
+    ],
+    continueLabel: 'Begin gently',
+  },
+  screeningPending: {
+    eyebrow: 'A short check-in',
+    title: 'A moment, please',
+    body:
+      'Your answers are being looked over carefully. This only ever takes a little while — we will continue the moment it is ready.',
+  },
+  notEligible: {
+    eyebrow: 'A short check-in',
+    title: 'Thank you for being honest',
+    body:
+      'Based on what you shared, this particular programme is not the right fit for you right now. That is okay — and it does not close the door on the Companion, which remains here for you.',
+  },
+  domainDiscovery: {
+    eyebrow: 'Choosing your focus',
+    title: 'A conversation, not a test',
+    body:
+      'Together with the Companion you will reflect on what feels most relevant in your life right now. There is no right answer — only what matters to you.',
+    continueLabel: 'Begin the conversation',
+  },
+  baselineIntro: {
+    eyebrow: 'Before we begin',
+    title: 'How are you, truly?',
+    body:
+      'Before the first session we will sit with a few short questions. Nothing is scored, and there are no wrong answers — only what is true for you today.',
+    continueLabel: 'Continue gently',
+  },
+  sessionEntry: {
+    eyebrow: 'Our time together',
+    title: 'Your sessions are ready',
+    body:
+      'Three quiet conversations, spread over your time here. One leads into the next, and we will never rush you.',
+    continueLabel: 'Begin the first session',
+  },
+  sessionLocked: {
+    eyebrow: 'A pause',
+    title: 'Not yet',
+    body:
+      'This part will open the moment what came before it is complete. There is no need to wait here — you will be brought back when it is ready.',
+  },
+  postTest: {
+    eyebrow: 'A gentle close',
+    title: 'One last quiet set',
+    body:
+      'A few short questions to see how things feel after our time together. There are no right answers — only what is true for you now.',
+    continueLabel: 'Continue gently',
+  },
+  pendingWiring: {
+    note:
+      'This step will open once your guide is ready. Nothing is lost — your place here is kept.',
+  },
 } as const;

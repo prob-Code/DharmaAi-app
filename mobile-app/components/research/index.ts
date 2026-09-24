@@ -2,14 +2,39 @@
 // research controller / App wiring owns all state, callbacks, and protocol
 // transitions.
 export { AdssScreen } from './AdssScreen';
+export { BaselineIntroScreen } from './BaselineIntroScreen';
 export { CompletionScreen } from './CompletionScreen';
 export { ConsentScreen } from './ConsentScreen';
 export { DomainConfirmationScreen } from './DomainConfirmationScreen';
+export { DomainDiscoveryScreen } from './DomainDiscoveryScreen';
 export { FeedbackScreen, type FeedbackInput } from './FeedbackScreen';
+export { NotEligibleScreen } from './NotEligibleScreen';
+export { PostTestIntroScreen } from './PostTestIntroScreen';
 export {
   QuestionnaireScreen,
   type QuestionnaireAnswers,
 } from './QuestionnaireScreen';
+export {
+  createDefaultResearchActions,
+  type ResearchActions,
+} from './ResearchActions';
+export {
+  ResearchExperience,
+  type ResearchExperienceProps,
+} from './ResearchExperience';
+export { ResearchIntroScreen } from './ResearchIntroScreen';
+export {
+  resolveParticipantStage,
+  type ParticipantStage,
+  type ResearchHydrationStatus,
+} from './participantFlow';
+export {
+  resolveResearchGateStep,
+  type ResearchGateStep,
+} from './researchGateContract';
+export { ScreeningPendingScreen } from './ScreeningPendingScreen';
+export { SessionEntryScreen } from './SessionEntryScreen';
+export { SessionLockedScreen } from './SessionLockedScreen';
 export { SessionTransitionScreen } from './SessionTransitionScreen';
 
 export { LikertScale, SelectionList } from './AnswerControls';

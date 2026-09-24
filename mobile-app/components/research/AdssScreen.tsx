@@ -17,6 +17,9 @@ interface Props {
   answers: Readonly<QuestionnaireAnswers>;
   onAnswer: (itemIndex: number, value: string) => void;
   onSubmit: (answers: QuestionnaireAnswers) => void;
+  /** Calm note shown instead of the submit button when the submission
+   *  builder is not yet wired by the parent. Presentational only. */
+  actionNote?: string;
   loading?: boolean;
   error?: string | null;
   testID?: string;
@@ -30,6 +33,7 @@ export const AdssScreen: React.FC<Props> = ({
   answers,
   onAnswer,
   onSubmit,
+  actionNote,
   loading,
   error,
   testID,
@@ -49,6 +53,7 @@ export const AdssScreen: React.FC<Props> = ({
       onSubmit={onSubmit}
       submitLabel={copy.submitLabel}
       progressLabel={copy.progressLabel}
+      actionNote={actionNote}
       loading={loading}
       error={error}
     />
