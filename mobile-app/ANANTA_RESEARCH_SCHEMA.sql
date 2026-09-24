@@ -100,6 +100,31 @@ begin
 end;
 $$;
 
+revoke all on function public.ananta_generate_research_code() from public, anon, authenticated;
+revoke all on function public.ananta_set_research_code() from public, anon, authenticated;
+revoke all on function public.ananta_touch_updated_at() from public, anon, authenticated;
+
+-- ---------------------------------------------------------------------
+-- A. Research participant / enrollment
+-- ---------------------------------------------------------------------
+
+create table public.ananta_enrollments (
+  id uuid primary key default pg_catalog.gen_random_uuid(),
+  research_code text not null unique,
+  user_id uuid not null unique references auth.users(id) on delete cascade,
+  consent_status text not null default 'none'
+    check (consent_status in ('none', 'pending', 'consented', 'declined')),
+  consent_signed_at timestamptz,
+  workflow_phase text not null default 'NOT_STARTED'
+    check (workflow_phase in (
+      'NOT_STARTED', 'DOMAIN_DISCOVERY', 'DOMAIN_CONFIRMED',
+      'BASELINE_PENDING', 'BASELINE_COMPLETED', 'SESSIONS_ACTIVE'
+    )),
+  confirmed_domain text,
+  created_at timestamptz not null default pg_catalog.now(),
+  updated_at timestamptz not null default pg_catalog.now()
+);
+
 -- Sanitized enrollment projection: never exposes research_code.
 create or replace function public.ananta_enrollment_view(
   p_row public.ananta_enrollments
@@ -122,103 +147,7 @@ begin
 end;
 $$;
 
--- Sanitized screening projection: raw_responses and score are never
--- returned to the participant client.
-create or replace function public.ananta_screening_view(
-  p_row public.ananta_screenings
-) returns jsonb
-language plpgsql
-security definer
-set search_path = ''
-as $$
-begin
-  return pg_catalog.jsonb_build_object(
-    'id', p_row.id,
-    'participant_id', p_row.participant_id,
-    'instrument_id', p_row.instrument_id,
-    'instrument_version', p_row.instrument_version,
-    'status', p_row.status,
-    'completed_at', p_row.completed_at,
-    'created_at', p_row.created_at
-  );
-end;
-$$;
-
--- Assessment projection used only as the immediate write receipt.
-create or replace function public.ananta_assessment_view(
-  p_row public.ananta_assessments
-) returns jsonb
-language plpgsql
-security definer
-set search_path = ''
-as $$
-begin
-  return pg_catalog.jsonb_build_object(
-    'id', p_row.id,
-    'participant_id', p_row.participant_id,
-    'domain', p_row.domain,
-    'instrument_id', p_row.instrument_id,
-    'instrument_version', p_row.instrument_version,
-    'role', p_row.role,
-    'raw_responses', p_row.raw_responses,
-    'score', p_row.score,
-    'completed_at', p_row.completed_at,
-    'metadata', p_row.metadata
-  );
-end;
-$$;
-
-create or replace function public.ananta_session_view(
-  p_row public.ananta_sessions
-) returns jsonb
-language plpgsql
-security definer
-set search_path = ''
-as $$
-begin
-  return pg_catalog.jsonb_build_object(
-    'id', p_row.id,
-    'participant_id', p_row.participant_id,
-    'session_number', p_row.session_number,
-    'status', p_row.status,
-    'domain_snapshot', p_row.domain_snapshot,
-    'started_at', p_row.started_at,
-    'completed_at', p_row.completed_at,
-    'summary', p_row.summary,
-    'created_at', p_row.created_at,
-    'updated_at', p_row.updated_at
-  );
-end;
-$$;
-
-revoke all on function public.ananta_generate_research_code() from public, anon, authenticated;
-revoke all on function public.ananta_set_research_code() from public, anon, authenticated;
-revoke all on function public.ananta_touch_updated_at() from public, anon, authenticated;
 revoke all on function public.ananta_enrollment_view(public.ananta_enrollments) from public, anon, authenticated;
-revoke all on function public.ananta_screening_view(public.ananta_screenings) from public, anon, authenticated;
-revoke all on function public.ananta_assessment_view(public.ananta_assessments) from public, anon, authenticated;
-revoke all on function public.ananta_session_view(public.ananta_sessions) from public, anon, authenticated;
-
--- ---------------------------------------------------------------------
--- A. Research participant / enrollment
--- ---------------------------------------------------------------------
-
-create table public.ananta_enrollments (
-  id uuid primary key default pg_catalog.gen_random_uuid(),
-  research_code text not null unique,
-  user_id uuid not null unique references auth.users(id) on delete cascade,
-  consent_status text not null default 'none'
-    check (consent_status in ('none', 'pending', 'consented', 'declined')),
-  consent_signed_at timestamptz,
-  workflow_phase text not null default 'NOT_STARTED'
-    check (workflow_phase in (
-      'NOT_STARTED', 'DOMAIN_DISCOVERY', 'DOMAIN_CONFIRMED',
-      'BASELINE_PENDING', 'BASELINE_COMPLETED', 'SESSIONS_ACTIVE'
-    )),
-  confirmed_domain text,
-  created_at timestamptz not null default pg_catalog.now(),
-  updated_at timestamptz not null default pg_catalog.now()
-);
 
 create trigger ananta_enrollments_set_research_code
   before insert on public.ananta_enrollments
@@ -341,8 +270,33 @@ create table public.ananta_screenings (
     check (status in ('pending', 'eligible', 'not_eligible')),
   score jsonb,
   completed_at timestamptz not null default pg_catalog.now(),
+  created_at timestamptz not null default pg_catalog.now(),
   metadata jsonb
 );
+
+-- Sanitized screening projection: raw_responses and score are never
+-- returned to the participant client.
+create or replace function public.ananta_screening_view(
+  p_row public.ananta_screenings
+) returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  return pg_catalog.jsonb_build_object(
+    'id', p_row.id,
+    'participant_id', p_row.participant_id,
+    'instrument_id', p_row.instrument_id,
+    'instrument_version', p_row.instrument_version,
+    'status', p_row.status,
+    'completed_at', p_row.completed_at,
+    'created_at', p_row.created_at
+  );
+end;
+$$;
+
+revoke all on function public.ananta_screening_view(public.ananta_screenings) from public, anon, authenticated;
 
 create index ananta_screenings_participant_idx on public.ananta_screenings (participant_id);
 
@@ -573,6 +527,32 @@ create table public.ananta_assessments (
   unique (participant_id, role)
 );
 
+-- Assessment projection used only as the immediate write receipt.
+create or replace function public.ananta_assessment_view(
+  p_row public.ananta_assessments
+) returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  return pg_catalog.jsonb_build_object(
+    'id', p_row.id,
+    'participant_id', p_row.participant_id,
+    'domain', p_row.domain,
+    'instrument_id', p_row.instrument_id,
+    'instrument_version', p_row.instrument_version,
+    'role', p_row.role,
+    'raw_responses', p_row.raw_responses,
+    'score', p_row.score,
+    'completed_at', p_row.completed_at,
+    'metadata', p_row.metadata
+  );
+end;
+$$;
+
+revoke all on function public.ananta_assessment_view(public.ananta_assessments) from public, anon, authenticated;
+
 create index ananta_assessments_participant_idx on public.ananta_assessments (participant_id);
 
 alter table public.ananta_assessments enable row level security;
@@ -734,6 +714,31 @@ create table public.ananta_sessions (
   updated_at timestamptz not null default pg_catalog.now(),
   unique (participant_id, session_number)
 );
+
+create or replace function public.ananta_session_view(
+  p_row public.ananta_sessions
+) returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  return pg_catalog.jsonb_build_object(
+    'id', p_row.id,
+    'participant_id', p_row.participant_id,
+    'session_number', p_row.session_number,
+    'status', p_row.status,
+    'domain_snapshot', p_row.domain_snapshot,
+    'started_at', p_row.started_at,
+    'completed_at', p_row.completed_at,
+    'summary', p_row.summary,
+    'created_at', p_row.created_at,
+    'updated_at', p_row.updated_at
+  );
+end;
+$$;
+
+revoke all on function public.ananta_session_view(public.ananta_sessions) from public, anon, authenticated;
 
 create index ananta_sessions_participant_idx on public.ananta_sessions (participant_id);
 
