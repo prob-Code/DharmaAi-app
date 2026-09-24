@@ -14,12 +14,7 @@ import { getSoundAsset, COLORS, KRISHNA_IMAGE, KRISHNA_VIDEO_URL, testAllSounds 
 import { useTheme } from '../context/ThemeContext';
 import { analyzeStress, StressAnalysisResult } from '../services/stressAnalysis';
 import { StressReport } from './StressReport';
-import { createInitialConversationState } from '../services/companion/conversationState';
-import {
-    createSessionOrchestratorState,
-    DEFAULT_SESSION_ORCHESTRATOR_STATE,
-    type SessionOrchestratorState,
-} from '../services/companion/sessionOrchestrator';
+import type { SessionOrchestratorState } from '../services/companion/sessionOrchestrator';
 import { createCompanionContext } from '../services/companion/companionContext';
 import { createCompanionPrompt } from '../services/companion/companionPrompt';
 
@@ -38,9 +33,10 @@ interface Props {
     settings: UserSettings;
     onUpdateSettings: (settings: Partial<UserSettings>) => void;
     onOpenSettings: () => void;
+    sessionState: SessionOrchestratorState;
 }
 
-export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onOpenSettings }) => {
+export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onOpenSettings, sessionState }) => {
     const { theme } = useTheme();
     const [messages, setMessages] = useState<Message[]>([]);
     const [input, setInput] = useState('');
@@ -60,21 +56,6 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
         voiceSoundRef.current = voiceSound;
     }, [voiceSound]);
 
-    const [sessionState, setSessionState] = useState<SessionOrchestratorState>(() => {
-        const initialConversationState = createInitialConversationState({
-            currentTopic: 'check-in',
-            responseDepth: 'brief',
-            userTimeBudget: 'standard',
-            interactionMode: 'conversation',
-        });
-
-        return createSessionOrchestratorState(1, null, initialConversationState, {
-            conversationState: initialConversationState,
-        }) ?? {
-            ...DEFAULT_SESSION_ORCHESTRATOR_STATE,
-            conversationState: initialConversationState,
-        };
-    });
     const conversationState = sessionState.conversationState;
     
     // Stress Report State

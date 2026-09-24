@@ -10,10 +10,12 @@ import { Reflections } from './components/Reflections';
 import { Videos } from './components/Videos';
 import { SettingsModal } from './components/SettingsModal';
 import { AuthScreen } from './components/auth/AuthScreen';
+import { ResearchGate } from './components/research/ResearchGate';
 import { InAppNotificationPopup } from './components/InAppNotificationPopup';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { NotificationsProvider } from './context/NotificationsContext';
 import { ThemeProvider, useTheme } from './context/ThemeContext';
+import { useParticipantResearch } from './services/research/useParticipantResearch';
 import { UserSettings, AppState } from './src/types';
 import { authService, supabase } from './services/supabase';
 import { registerForPushNotificationsAsync } from './services/pushNotifications';
@@ -33,6 +35,7 @@ const DEFAULT_SETTINGS: UserSettings = {
 const AppContent = () => {
   const { session, loading: authLoading, user, signOut, skipAuth } = useAuth();
   const { theme } = useTheme();
+  const research = useParticipantResearch(user?.id ?? null);
   const [appState, setAppState] = useState<AppState>(AppState.ONBOARDING);
   const [activeTab, setActiveTab] = useState<'companion' | 'reflections' | 'videos'>('companion');
   const [settings, setSettings] = useState<UserSettings>(DEFAULT_SETTINGS);
@@ -205,11 +208,22 @@ const AppContent = () => {
       return <Videos settings={settings} />;
     }
     return (
-      <ChatInterface
-        settings={settings}
-        onUpdateSettings={updateSettings}
-        onOpenSettings={() => setShowSettings(true)}
-      />
+      <ResearchGate
+        status={research.status}
+        snapshot={research.snapshot}
+        controller={research.controller}
+        error={research.error}
+        onRetry={research.retry}
+      >
+        {research.snapshot === null ? null : (
+          <ChatInterface
+            settings={settings}
+            onUpdateSettings={updateSettings}
+            onOpenSettings={() => setShowSettings(true)}
+            sessionState={research.snapshot.session}
+          />
+        )}
+      </ResearchGate>
     );
   };
 
