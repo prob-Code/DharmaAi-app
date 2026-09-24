@@ -22,6 +22,9 @@ interface Props {
   onSubmit: (answers: QuestionnaireAnswers) => void;
   submitLabel?: string;
   progressLabel?: (current: number, total: number) => string;
+  /** Calm note shown instead of the submit button when the submission
+   *  builder is not yet wired by the parent. Presentational only. */
+  actionNote?: string;
   loading?: boolean;
   error?: string | null;
   testID?: string;
@@ -40,6 +43,7 @@ export const QuestionnaireScreen: React.FC<Props> = ({
   onSubmit,
   submitLabel = 'Continue',
   progressLabel,
+  actionNote,
   loading = false,
   error = null,
   testID,
@@ -64,15 +68,21 @@ export const QuestionnaireScreen: React.FC<Props> = ({
               {error}
             </Text>
           ) : null}
-          <ResearchButton
-            label={submitLabel}
-            onPress={() => onSubmit({ ...answers })}
-            disabled={!allAnswered || loading}
-            loading={loading}
-            accessibilityLabel={
-              allAnswered ? submitLabel : `${submitLabel}. ${items.length - answeredCount} remaining`
-            }
-          />
+          {actionNote ? (
+            <Text style={styles.actionNote} accessibilityRole="text">
+              {actionNote}
+            </Text>
+          ) : (
+            <ResearchButton
+              label={submitLabel}
+              onPress={() => onSubmit({ ...answers })}
+              disabled={!allAnswered || loading}
+              loading={loading}
+              accessibilityLabel={
+                allAnswered ? submitLabel : `${submitLabel}. ${items.length - answeredCount} remaining`
+              }
+            />
+          )}
         </View>
       }
     >
@@ -134,5 +144,12 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
     color: researchPalette.danger,
+  },
+  actionNote: {
+    fontSize: 14,
+    lineHeight: 21,
+    color: researchPalette.faint,
+    textAlign: 'center',
+    paddingVertical: 4,
   },
 });

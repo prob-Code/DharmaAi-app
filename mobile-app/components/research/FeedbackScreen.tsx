@@ -20,6 +20,9 @@ export interface FeedbackInput {
 
 interface Props {
   onSubmit: (input: FeedbackInput) => void;
+  /** Calm note shown instead of the submit button when the submission
+   *  builder is not yet wired by the parent. Presentational only. */
+  actionNote?: string;
   loading?: boolean;
   error?: string | null;
   testID?: string;
@@ -27,6 +30,7 @@ interface Props {
 
 export const FeedbackScreen: React.FC<Props> = ({
   onSubmit,
+  actionNote,
   loading = false,
   error = null,
   testID,
@@ -48,14 +52,20 @@ export const FeedbackScreen: React.FC<Props> = ({
               {error}
             </Text>
           ) : null}
-          <ResearchButton
-            label={copy.submitLabel}
-            onPress={() =>
-              onSubmit({ ratings: { ...ratings }, comment: comment.trim() || undefined })
-            }
-            disabled={!allAnswered || loading}
-            loading={loading}
-          />
+          {actionNote ? (
+            <Text style={styles.actionNote} accessibilityRole="text">
+              {actionNote}
+            </Text>
+          ) : (
+            <ResearchButton
+              label={copy.submitLabel}
+              onPress={() =>
+                onSubmit({ ratings: { ...ratings }, comment: comment.trim() || undefined })
+              }
+              disabled={!allAnswered || loading}
+              loading={loading}
+            />
+          )}
         </View>
       }
     >
@@ -155,5 +165,12 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
     color: researchPalette.danger,
+  },
+  actionNote: {
+    fontSize: 14,
+    lineHeight: 21,
+    color: researchPalette.faint,
+    textAlign: 'center',
+    paddingVertical: 4,
   },
 });
