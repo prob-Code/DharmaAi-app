@@ -126,6 +126,9 @@ export const researchCopy = {
     body:
       'What you shared matters, and it stays with us only as part of this study. Thank you for trusting this space with your time — and for being honest along the way.',
     continueLabel: 'Continue',
+    researchCodeLabel: 'Your research code',
+    researchCodeNote:
+      'Keep it safe — it lets the study team stay in touch about this study without ever knowing who you are.',
   },
   introduction: {
     eyebrow: 'Welcome',

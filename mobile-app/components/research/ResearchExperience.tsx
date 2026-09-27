@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text } from 'react-native';
 import type { ResearchSnapshot, ParticipantResearchController } from '../../services/research/researchController';
 import type { AnswerOption } from './AnswerControls';
@@ -83,34 +83,137 @@ export const ResearchExperience: React.FC<ResearchExperienceProps> = ({
   const [screeningAnswers, setScreeningAnswers] = useState<QuestionnaireAnswers>({});
   const [baselineAnswers, setBaselineAnswers] = useState<QuestionnaireAnswers>({});
   const [postAnswers, setPostAnswers] = useState<QuestionnaireAnswers>({});
+  const [discoveryEntered, setDiscoveryEntered] = useState(false);
+  const [journeyComplete, setJourneyComplete] = useState(false);
+  const [researchCode, setResearchCode] = useState<string | null>(null);
+  const researchCodeRequestedRef = useRef(false);
+  const openingAdvanceStartedRef = useRef(false);
+  const closingCompleteStartedRef = useRef(false);
 
   const stage = resolveParticipantStage(status, snapshot);
 
   // Post-test tail: intro → questions → feedback → completion. These are
   // presentation-only progressions shown after the final session; the
-  // controller remains the source of truth (snapshot will still resolve to
-  // post_test_intro until it emits a different phase).
+  // controller remains the source of truth. A hydrated (or in-session)
+  // post-assessment record re-opens the tail at completion so a reload never
+  // re-enters the questionnaire.
   const inTail = stage.stage === 'post_test_intro';
   const [postStage, setPostStage] = useState<'intro' | 'questions' | 'feedback' | 'done'>('intro');
   useEffect(() => {
     if (!inTail) {
       setPostStage('intro');
+      setJourneyComplete(false);
+      setResearchCode(null);
+      researchCodeRequestedRef.current = false;
+      return;
     }
-  }, [inTail]);
+    if (snapshot?.postAssessmentCompleted === true) {
+      setPostStage(current => (current === 'intro' ? 'done' : current));
+    }
+  }, [inTail, snapshot?.postAssessmentCompleted]);
+
+  // Discovery entry: the intro screen hands over to the Companion chat once;
+  // leaving the discovery stage re-arms the intro.
+  useEffect(() => {
+    if (stage.stage !== 'domain_discovery') {
+      setDiscoveryEntered(false);
+    }
+  }, [stage.stage]);
+
+  // OPENING sessions move into the conversation without another tap; a failed
+  // advance is retried quietly so the participant is never stranded.
+  useEffect(() => {
+    if (
+      stage.stage !== 'session_active' ||
+      snapshot?.session.sessionPhase !== 'OPENING' ||
+      controller === null
+    ) {
+      openingAdvanceStartedRef.current = false;
+      return;
+    }
+    if (openingAdvanceStartedRef.current) {
+      return;
+    }
+    openingAdvanceStartedRef.current = true;
+    let cancelled = false;
+    const attempt = async (): Promise<void> => {
+      if (cancelled) return;
+      try {
+        await controller.advanceActiveSession();
+      } catch {
+        if (cancelled) return;
+        await new Promise<void>(resolve => setTimeout(resolve, 2500));
+        await attempt();
+      }
+    };
+    void attempt();
+    return () => {
+      cancelled = true;
+      openingAdvanceStartedRef.current = false;
+    };
+  }, [stage.stage, snapshot?.session.sessionPhase, controller]);
+
+  // CLOSING sessions (including a reload that lands mid-close) finish
+  // quietly so the flow always reaches the next session or the post-test.
+  useEffect(() => {
+    if (stage.stage !== 'session_locked' || controller === null) {
+      closingCompleteStartedRef.current = false;
+      return;
+    }
+    if (closingCompleteStartedRef.current) {
+      return;
+    }
+    closingCompleteStartedRef.current = true;
+    let cancelled = false;
+    const attempt = async (): Promise<void> => {
+      if (cancelled) return;
+      try {
+        await controller.completeActiveSession();
+      } catch {
+        if (cancelled) return;
+        await new Promise<void>(resolve => setTimeout(resolve, 2500));
+        await attempt();
+      }
+    };
+    void attempt();
+    return () => {
+      cancelled = true;
+      closingCompleteStartedRef.current = false;
+    };
+  }, [stage.stage, controller]);
+
+  // The research code is read once, the first time completion is shown.
+  useEffect(() => {
+    if (
+      stage.stage !== 'post_test_intro' ||
+      postStage !== 'done' ||
+      controller === null ||
+      researchCodeRequestedRef.current
+    ) {
+      return;
+    }
+    researchCodeRequestedRef.current = true;
+    void controller
+      .getMyResearchCode()
+      .then(code => setResearchCode(code))
+      .catch(() => setResearchCode(null));
+  }, [stage.stage, postStage, controller]);
 
   const run = async (
     name: string,
     fn: (() => void | Promise<unknown>) | undefined,
-  ): Promise<void> => {
+  ): Promise<boolean> => {
     if (!fn || busyAction !== null) {
-      return;
+      return false;
     }
     setBusyAction(name);
     setActionError(null);
     try {
       await fn();
+      return true;
     } catch {
       setActionError('Something interrupted. Your place here is kept — please try again.');
+      return false;
     } finally {
       setBusyAction(null);
     }
@@ -197,15 +300,25 @@ export const ResearchExperience: React.FC<ResearchExperienceProps> = ({
       return <NotEligibleScreen testID={testID} />;
 
     case 'domain_discovery':
-      return actions.onContinueDiscovery ? (
+      if (!actions.onContinueDiscovery) {
+        return renderMissing();
+      }
+      if (discoveryEntered) {
+        return <>{children}</>;
+      }
+      return (
         <DomainDiscoveryScreen
           testID={testID}
-          onContinue={() => run('discovery', actions.onContinueDiscovery)}
+          onContinue={() =>
+            run('discovery', actions.onContinueDiscovery).then(entered => {
+              if (entered) {
+                setDiscoveryEntered(true);
+              }
+            })
+          }
           loading={loading('discovery')}
           error={error}
         />
-      ) : (
-        renderMissing()
       );
 
     case 'domain_confirmation':
@@ -294,12 +407,23 @@ export const ResearchExperience: React.FC<ResearchExperienceProps> = ({
       return <>{children}</>;
 
     case 'post_test_intro': {
+      if (journeyComplete) {
+        return <>{children}</>;
+      }
       if (postStage === 'done') {
         return (
           <CompletionScreen
             testID={testID}
+            researchCode={researchCode}
             onFinish={
-              actions.onFinish ? () => run('finish', actions.onFinish) : undefined
+              actions.onFinish
+                ? () =>
+                    run('finish', actions.onFinish).then(completed => {
+                      if (completed) {
+                        setJourneyComplete(true);
+                      }
+                    })
+                : undefined
             }
             loading={loading('finish')}
           />
@@ -310,9 +434,11 @@ export const ResearchExperience: React.FC<ResearchExperienceProps> = ({
           <FeedbackScreen
             testID={testID}
             onSubmit={(input: FeedbackInput) =>
-              run('feedback', () => actions.onPersistFeedback?.(input)).then(() =>
-                setPostStage('done'),
-              )
+              run('feedback', () => actions.onPersistFeedback?.(input)).then(submitted => {
+                if (submitted) {
+                  setPostStage('done');
+                }
+              })
             }
             loading={loading('feedback')}
             error={error}
@@ -337,9 +463,11 @@ export const ResearchExperience: React.FC<ResearchExperienceProps> = ({
               setPostAnswers((prev) => ({ ...prev, [index]: value }))
             }
             onSubmit={(answers) => {
-              run('postTest', () => actions.onCompletePostTest?.(answers)).then(
-                () => setPostStage('feedback'),
-              );
+              run('postTest', () => actions.onCompletePostTest?.(answers)).then(submitted => {
+                if (submitted) {
+                  setPostStage('feedback');
+                }
+              });
             }}
             submitLabel={copyPost.continueLabel}
             progressLabel={copyAssessment.progressLabel}

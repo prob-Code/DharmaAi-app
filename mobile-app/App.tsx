@@ -198,6 +198,29 @@ const AppContent = () => {
     loadState();
   };
 
+  const handleSettleFocus = async (statement: string) => {
+    const controller = research.controller;
+    if (controller === null) return;
+    controller.proposeDomainCandidate(statement, statement);
+  };
+
+  const handleWrapUpSession = async () => {
+    const controller = research.controller;
+    if (controller === null) return;
+    if (controller.getSnapshot().session.sessionPhase === 'OPENING') {
+      await controller.advanceActiveSession();
+    }
+    if (controller.getSnapshot().session.sessionPhase === 'ACTIVE') {
+      await controller.advanceActiveSession();
+    }
+  };
+
+  const handleTranscript = (role: 'user' | 'companion', content: string) => {
+    const controller = research.controller;
+    if (controller === null || controller.getActiveSessionId() === null) return;
+    void controller.appendTranscript(role, content).catch(() => undefined);
+  };
+
   if (authLoading || isAppLoading) {
     return (
       <View style={[styles.loadingContainer, { backgroundColor: theme.colors.background }]}>
@@ -233,6 +256,10 @@ const AppContent = () => {
             onUpdateSettings={updateSettings}
             onOpenSettings={() => setShowSettings(true)}
             sessionState={research.snapshot.session}
+            domainDiscovery={research.snapshot.domainDiscovery}
+            onSettleFocus={handleSettleFocus}
+            onWrapUpSession={handleWrapUpSession}
+            onTranscript={handleTranscript}
           />
         )}
       </ResearchExperience>

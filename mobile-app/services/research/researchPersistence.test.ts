@@ -466,6 +466,7 @@ export async function runResearchPersistenceTests(): Promise<void> {
     assert(state !== null, 'read model should exist once an enrollment exists');
     assert(state?.enrollment.workflow_phase === 'SESSIONS_ACTIVE', 'read model should include the enrollment');
     assert(state?.baseline?.role === 'pre', 'read model should include the baseline assessment');
+    assert(state?.postAssessment === null, 'read model should reflect the missing post assessment');
     assert(
       !('raw_responses' in state!.baseline!) && !('score' in state!.baseline!) && !('metadata' in state!.baseline!),
       'read model baseline must not expose the restricted assessment columns',

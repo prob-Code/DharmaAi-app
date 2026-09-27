@@ -15,6 +15,7 @@ import { analyzeStress, StressAnalysisResult } from '../services/stressAnalysis'
 import { StressReport } from './StressReport';
 import { EnvironmentLayer } from './environment/EnvironmentLayer';
 import type { SessionOrchestratorState } from '../services/companion/sessionOrchestrator';
+import type { DomainDiscoveryState } from '../services/companion/domainDiscovery';
 import { createCompanionContext } from '../services/companion/companionContext';
 import { createCompanionPrompt } from '../services/companion/companionPrompt';
 import { resetTtsPresentationSignal, signalTtsInterruption, useTtsPresentationSignal } from './voice/ttsPresentationSignal';
@@ -35,9 +36,22 @@ interface Props {
     onUpdateSettings: (settings: Partial<UserSettings>) => void;
     onOpenSettings: () => void;
     sessionState: SessionOrchestratorState;
+    domainDiscovery?: DomainDiscoveryState | null;
+    onSettleFocus?: (statement: string) => void | Promise<unknown>;
+    onWrapUpSession?: () => void | Promise<unknown>;
+    onTranscript?: (role: 'user' | 'companion', content: string) => void;
 }
 
-export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onOpenSettings, sessionState }) => {
+export const ChatInterface: React.FC<Props> = ({
+    settings,
+    onUpdateSettings,
+    onOpenSettings,
+    sessionState,
+    domainDiscovery = null,
+    onSettleFocus,
+    onWrapUpSession,
+    onTranscript,
+}) => {
     const { theme } = useTheme();
     const [messages, setMessages] = useState<Message[]>([]);
     const [input, setInput] = useState('');
@@ -758,6 +772,7 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
         setMessages(prev => [...prev, userMsg]);
         setInput('');
         setIsLoading(true);
+        onTranscript?.('user', text);
 
         try {
             const currentSessionState = sessionState;
@@ -769,7 +784,7 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
                 currentSessionState,
                 {
                     activeSummary: currentSessionState.activeSummary ?? null,
-                    domainDiscovery: null,
+                    domainDiscovery,
                 },
             );
             const companionPrompt = createCompanionPrompt(companionContext);
@@ -788,6 +803,7 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
                 timestamp: Date.now()
             };
             setMessages(prev => [...prev, aiMsg]);
+            onTranscript?.('companion', aiText);
             setIsLoading(false);
 
             if (settings.voiceEnabled) {
@@ -891,6 +907,35 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
         }
     };
 
+    const lastUserStatement =
+        [...messages].reverse().find(message => message.role === 'user')?.content ?? null;
+    const showSettleFocus =
+        domainDiscovery !== null &&
+        domainDiscovery.status === 'EXPLORING' &&
+        lastUserStatement !== null &&
+        onSettleFocus !== undefined;
+    const showWrapUpSession =
+        (sessionState.sessionPhase === 'OPENING' || sessionState.sessionPhase === 'ACTIVE') &&
+        onWrapUpSession !== undefined;
+
+    const handleSettleFocus = async () => {
+        if (lastUserStatement === null || !onSettleFocus) return;
+        try {
+            await onSettleFocus(lastUserStatement);
+        } catch (err) {
+            console.error(err);
+        }
+    };
+
+    const handleWrapUpSession = async () => {
+        if (!onWrapUpSession) return;
+        try {
+            await onWrapUpSession();
+        } catch (err) {
+            console.error(err);
+        }
+    };
+
     const renderItem = ({ item }: { item: Message }) => {
         const isUser = item.role === 'user';
         return (
@@ -945,6 +990,33 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
                 {isLoading && (
                     <View style={[styles.bubble, styles.aiBubble, dynamicStyles.aiBubbleBg, { marginLeft: 20, marginBottom: 20, width: 60, alignItems: 'center' }]}>
                         <Text style={[{ fontSize: 20 }, dynamicStyles.accentColor]}>...</Text>
+                    </View>
+                )}
+
+                {(showSettleFocus || showWrapUpSession) && (
+                    <View style={styles.protocolRow}>
+                        {showSettleFocus && (
+                            <TouchableOpacity
+                                onPress={handleSettleFocus}
+                                disabled={isLoading}
+                                style={[styles.protocolButton, dynamicStyles.inputBorder]}
+                            >
+                                <Text style={[styles.protocolButtonText, dynamicStyles.accentColor]}>
+                                    This is my focus
+                                </Text>
+                            </TouchableOpacity>
+                        )}
+                        {showWrapUpSession && (
+                            <TouchableOpacity
+                                onPress={handleWrapUpSession}
+                                disabled={isLoading}
+                                style={[styles.protocolButton, dynamicStyles.inputBorder]}
+                            >
+                                <Text style={[styles.protocolButtonText, dynamicStyles.accentColor]}>
+                                    Wrap up this session
+                                </Text>
+                            </TouchableOpacity>
+                        )}
                     </View>
                 )}
 
@@ -1065,6 +1137,27 @@ const styles = StyleSheet.create({
         right: 20,
         borderRadius: 35,
         overflow: 'hidden',
+    },
+    protocolRow: {
+        position: 'absolute',
+        bottom: 96,
+        left: 20,
+        right: 20,
+        flexDirection: 'row',
+        justifyContent: 'flex-end',
+        gap: 8,
+        zIndex: 10,
+    },
+    protocolButton: {
+        paddingVertical: 8,
+        paddingHorizontal: 14,
+        borderRadius: 18,
+        borderWidth: 1,
+        backgroundColor: 'rgba(255,255,255,0.06)',
+    },
+    protocolButtonText: {
+        fontSize: 13,
+        letterSpacing: 0.3,
     },
     inputContainer: {
         flexDirection: 'row',

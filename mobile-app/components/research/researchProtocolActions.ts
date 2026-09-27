@@ -16,10 +16,9 @@ import { researchCopy } from './researchContent';
 //
 // These adapt the presentational research surfaces to the controller's
 // instrument submissions. Every method below already exists on the
-// controller; none of them writes to Supabase directly. Action keys without a
-// controller-backed counterpart (discovery continuation, domain reconsider,
-// post-journey finish) are intentionally left unwired so the experience
-// boundary stays explicit and fails safely.
+// controller; none of them writes to Supabase directly. Discovery
+// continuation and post-journey finish are presentation-only transitions
+// (the controller snapshot already carries the protocol state they need).
 
 const SCREENING_INSTRUMENT_ID = 'adss-v1';
 const SCREENING_INSTRUMENT_VERSION = '1.0.0';
@@ -93,6 +92,21 @@ export function createResearchProtocolActions(
       return controller.completePostAssessment(submission);
     },
 
+    onContinueDiscovery: () => undefined,
+
+    onConfirmDomain: () => {
+      const discovery = controller.getSnapshot().domainDiscovery;
+      const candidate = discovery.currentCandidateDomain;
+      if (candidate === null) {
+        throw new Error('No domain candidate is ready to confirm');
+      }
+      return controller.confirmDomainCandidate(candidate, discovery.participantFacingScenario);
+    },
+
+    onReconsiderDomain: () => {
+      controller.reconsiderDomainCandidate();
+    },
+
     onPersistFeedback: (input: FeedbackInput) => {
       const comment = input.comment?.trim() ?? '';
       const requests: FeedbackRequest[] = [];
@@ -109,5 +123,7 @@ export function createResearchProtocolActions(
       }
       return Promise.all(requests.map((request) => controller.persistFeedback(request)));
     },
+
+    onFinish: () => undefined,
   };
 }

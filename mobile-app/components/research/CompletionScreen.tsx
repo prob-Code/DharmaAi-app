@@ -8,12 +8,14 @@ import { researchPalette } from './researchTheme';
 
 interface Props {
   onFinish?: () => void;
+  researchCode?: string | null;
   loading?: boolean;
   testID?: string;
 }
 
 export const CompletionScreen: React.FC<Props> = ({
   onFinish,
+  researchCode,
   loading = false,
   testID,
 }) => {
@@ -44,6 +46,20 @@ export const CompletionScreen: React.FC<Props> = ({
           {copy.body}
         </Text>
       </View>
+
+      {researchCode ? (
+        <View style={styles.researchCode}>
+          <Text style={styles.researchCodeLabel} maxFontSizeMultiplier={1.2}>
+            {copy.researchCodeLabel}
+          </Text>
+          <Text style={styles.researchCodeValue} maxFontSizeMultiplier={1.2}>
+            {researchCode}
+          </Text>
+          <Text style={styles.researchCodeNote} maxFontSizeMultiplier={1.2}>
+            {copy.researchCodeNote}
+          </Text>
+        </View>
+      ) : null}
     </SectionContainer>
   );
 };
@@ -58,6 +74,28 @@ const styles = StyleSheet.create({
     fontSize: 17,
     lineHeight: 28,
     color: researchPalette.muted,
+  },
+  researchCode: {
+    alignItems: 'center',
+    gap: 6,
+  },
+  researchCodeLabel: {
+    fontSize: 13,
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    color: researchPalette.muted,
+  },
+  researchCodeValue: {
+    fontSize: 20,
+    letterSpacing: 2,
+    color: researchPalette.accent,
+  },
+  researchCodeNote: {
+    fontSize: 14,
+    lineHeight: 22,
+    color: researchPalette.muted,
+    textAlign: 'center',
+    paddingHorizontal: 10,
   },
   footer: {
     gap: 6,
