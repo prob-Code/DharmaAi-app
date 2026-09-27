@@ -31,6 +31,7 @@ const SESSION_COLUMNS =
 export interface ResearchPersistence {
   loadResearchEnrollment(userId: string): Promise<EnrollmentRow | null>;
   loadCurrentResearchState(userId: string): Promise<ResearchStateReadModel | null>;
+  getMyResearchCode(): Promise<string>;
   recordConsent(): Promise<EnrollmentRow>;
   beginResearch(): Promise<EnrollmentRow>;
   recordScreening(input: ScreeningSubmission): Promise<ScreeningRow>;
@@ -239,6 +240,16 @@ export function createResearchPersistence(client: SupabaseClient): ResearchPersi
       return data as FeedbackRow;
     },
 
+    async getMyResearchCode(): Promise<string> {
+      const { data, error } = await client.rpc('ananta_get_my_research_code');
+
+      if (error) {
+        throw error;
+      }
+
+      return rpcEnvelope<string>(data, 'ananta_get_my_research_code');
+    },
+
     async loadCurrentResearchState(userId: string): Promise<ResearchStateReadModel | null> {
       const enrollment = await this.loadResearchEnrollment(userId);
 
@@ -246,12 +257,18 @@ export function createResearchPersistence(client: SupabaseClient): ResearchPersi
         return null;
       }
 
-      const [baselineRequest, screeningRequest, sessionsRequest] = await Promise.all([
+      const [baselineRequest, postRequest, screeningRequest, sessionsRequest] = await Promise.all([
         client
           .from('ananta_assessments')
           .select(ASSESSMENT_COLUMNS)
           .eq('participant_id', enrollment.id)
           .eq('role', 'pre')
+          .maybeSingle(),
+        client
+          .from('ananta_assessments')
+          .select(ASSESSMENT_COLUMNS)
+          .eq('participant_id', enrollment.id)
+          .eq('role', 'post')
           .maybeSingle(),
         client
           .from('ananta_screenings')
@@ -269,6 +286,10 @@ export function createResearchPersistence(client: SupabaseClient): ResearchPersi
         throw baselineRequest.error;
       }
 
+      if (postRequest.error) {
+        throw postRequest.error;
+      }
+
       if (screeningRequest.error) {
         throw screeningRequest.error;
       }
@@ -280,6 +301,7 @@ export function createResearchPersistence(client: SupabaseClient): ResearchPersi
       return {
         enrollment,
         baseline: (baselineRequest.data ?? null) as ParticipantAssessmentRow | null,
+        postAssessment: (postRequest.data ?? null) as ParticipantAssessmentRow | null,
         screening: (screeningRequest.data ?? null) as ScreeningRow | null,
         sessions: (sessionsRequest.data ?? []) as SessionRow[],
       };

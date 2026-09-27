@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import { ActivityIndicator, Animated, StyleSheet, Text, View } from 'react-native';
 import { ResearchButton } from './ResearchButton';
 import { displayFont, researchPalette } from './researchTheme';
+import { useReduceMotion } from './useReduceMotion';
 
 // Calm, quiet states. No spinners for full-surface loading beyond a small,
 // restrained indicator.
@@ -14,14 +15,19 @@ interface StateShellProps {
 
 const StateShell: React.FC<StateShellProps> = ({ title, body, children }) => {
   const opacity = useRef(new Animated.Value(0)).current;
+  const reduceMotion = useReduceMotion();
 
   useEffect(() => {
+    if (reduceMotion) {
+      opacity.setValue(1);
+      return;
+    }
     Animated.timing(opacity, {
       toValue: 1,
       duration: 500,
       useNativeDriver: true,
     }).start();
-  }, [opacity]);
+  }, [opacity, reduceMotion]);
 
   return (
     <Animated.View style={[styles.shell, { opacity }]}>

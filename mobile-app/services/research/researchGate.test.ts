@@ -24,6 +24,7 @@ function makeSnapshot(overrides: {
   confirmedDomain?: string | null;
   screening?: ScreeningRow | null;
   session?: SessionOrchestratorState;
+  postAssessmentCompleted?: boolean;
 }): ResearchSnapshot {
   const enrollment = makeEnrollmentRow({
     consent_status: (overrides.consentStatus ?? 'consented') as 'consented',
@@ -37,6 +38,7 @@ function makeSnapshot(overrides: {
     domainDiscovery: enrollmentRowToDomainDiscovery(enrollment),
     screening: overrides.screening ?? null,
     session: overrides.session ?? createDefaultSessionState(),
+    postAssessmentCompleted: overrides.postAssessmentCompleted ?? false,
   };
 }
 

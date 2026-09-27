@@ -131,6 +131,7 @@ export interface StartSessionOutput {
 export interface ResearchStateReadModel {
   enrollment: EnrollmentRow;
   baseline: ParticipantAssessmentRow | null;
+  postAssessment: ParticipantAssessmentRow | null;
   screening: ScreeningRow | null;
   sessions: SessionRow[];
 }

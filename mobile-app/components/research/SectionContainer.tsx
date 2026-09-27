@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { researchLayout, researchPalette } from './researchTheme';
+import { useReduceMotion } from './useReduceMotion';
 
 interface Props {
   children: React.ReactNode;
@@ -39,14 +40,19 @@ export const SectionContainer: React.FC<Props> = ({
   style,
 }) => {
   const opacity = useRef(new Animated.Value(0)).current;
+  const reduceMotion = useReduceMotion();
 
   useEffect(() => {
+    if (reduceMotion) {
+      opacity.setValue(1);
+      return;
+    }
     Animated.timing(opacity, {
       toValue: 1,
       duration: 600,
       useNativeDriver: true,
     }).start();
-  }, [opacity]);
+  }, [opacity, reduceMotion]);
 
   const inner = (
     <View style={[styles.content, centered && styles.contentCentered]}>

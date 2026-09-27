@@ -4,6 +4,7 @@ import {
   confirmCandidateDomain,
   createInitialDomainDiscoveryState,
   presentCandidateForConfirmation,
+  retryDomainDiscovery,
   setCandidateDomain,
 } from '../companion/domainDiscovery';
 import { DEFAULT_CONVERSATION_STATE, type UserTimeBudget } from '../companion/conversationState';
@@ -57,6 +58,7 @@ export interface ResearchSnapshot {
   domainDiscovery: DomainDiscoveryState;
   screening: ScreeningRow | null;
   session: SessionOrchestratorState;
+  postAssessmentCompleted: boolean;
 }
 
 export type ResearchStateListener = (snapshot: ResearchSnapshot) => void;
@@ -79,6 +81,7 @@ export class ParticipantResearchController {
   private screening: ScreeningRow | null = null;
   private session: SessionOrchestratorState = createDefaultSessionState();
   private currentSessionId: string | null = null;
+  private postAssessmentCompleted = false;
 
   constructor(
     userId: string,
@@ -108,6 +111,7 @@ export class ParticipantResearchController {
       this.screening = null;
       this.session = createDefaultSessionState();
       this.currentSessionId = null;
+      this.postAssessmentCompleted = false;
     } else {
       this.applyReadModel(state);
     }
@@ -138,6 +142,42 @@ export class ParticipantResearchController {
   async completeScreening(input: ScreeningSubmission): Promise<ResearchSnapshot> {
     const row = await this.persistence.recordScreening(input);
     this.screening = row;
+
+    this.notify();
+    return this.getSnapshot();
+  }
+
+  proposeDomainCandidate(
+    candidateDomain: string,
+    participantScenario: string,
+  ): ResearchSnapshot {
+    if (this.workflow.phase !== 'DOMAIN_DISCOVERY') {
+      throw new Error('Domain discovery is not available in the current workflow phase');
+    }
+
+    this.requireEligibleScreening();
+
+    const domain = candidateDomain.trim();
+    const scenario = participantScenario.trim();
+    if (domain.length === 0 || scenario.length === 0) {
+      throw new Error('A domain candidate and a participant-facing scenario are required');
+    }
+
+    let discovery = this.domainDiscovery;
+    discovery = setCandidateDomain(discovery, domain, scenario);
+    discovery = presentCandidateForConfirmation(discovery);
+    this.domainDiscovery = discovery;
+
+    this.notify();
+    return this.getSnapshot();
+  }
+
+  reconsiderDomainCandidate(): ResearchSnapshot {
+    if (this.workflow.phase !== 'DOMAIN_DISCOVERY') {
+      throw new Error('Domain discovery is not available in the current workflow phase');
+    }
+
+    this.domainDiscovery = retryDomainDiscovery(this.domainDiscovery);
 
     this.notify();
     return this.getSnapshot();
@@ -231,6 +271,8 @@ export class ParticipantResearchController {
         throw error;
       }
     }
+
+    this.postAssessmentCompleted = true;
 
     this.notify();
     return this.getSnapshot();
@@ -393,6 +435,10 @@ export class ParticipantResearchController {
     });
   }
 
+  async getMyResearchCode(): Promise<string> {
+    return this.persistence.getMyResearchCode();
+  }
+
   getSnapshot(): ResearchSnapshot {
     return {
       enrollment: this.enrollment === null ? null : { ...this.enrollment },
@@ -400,6 +446,7 @@ export class ParticipantResearchController {
       domainDiscovery: { ...this.domainDiscovery },
       screening: this.screening === null ? null : { ...this.screening },
       session: { ...this.session },
+      postAssessmentCompleted: this.postAssessmentCompleted,
     };
   }
 
@@ -437,6 +484,7 @@ export class ParticipantResearchController {
         ? createDefaultSessionState()
         : sessionRowToOrchestratorState(latestSession);
     this.currentSessionId = latestSession === undefined ? null : latestSession.id;
+    this.postAssessmentCompleted = state.postAssessment !== null;
   }
 
   private applyEnrollmentRow(row: EnrollmentRow): void {

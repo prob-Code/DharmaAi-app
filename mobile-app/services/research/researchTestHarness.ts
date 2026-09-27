@@ -730,6 +730,28 @@ function rpcAppendTranscript(db: ResearchTestDb, args: Record<string, unknown>):
   }
 }
 
+function rpcGetMyResearchCode(db: ResearchTestDb): FakeResult {
+  try {
+    const userId = db.authUserId;
+    if (userId === null || userId === undefined) {
+      throw authError();
+    }
+
+    const enrollment = db.enrollments.find(row => row.user_id === userId);
+    if (enrollment === undefined) {
+      return {
+        data: null,
+        error: protocolError('ananta_get_my_research_code', 'enrollment required'),
+      };
+    }
+
+    const code = (enrollment as unknown as Row).research_code ?? null;
+    return { data: code, error: null };
+  } catch (error) {
+    return { data: null, error: error as FakeError };
+  }
+}
+
 export function createFakeSupabaseClient(db: ResearchTestDb): SupabaseClient {
   const fake = {
     from(table: string): FakePostgrestBuilder {
@@ -757,6 +779,8 @@ export function createFakeSupabaseClient(db: ResearchTestDb): SupabaseClient {
           return rpcCompleteSession(db, args);
         case 'ananta_append_transcript':
           return rpcAppendTranscript(db, args);
+        case 'ananta_get_my_research_code':
+          return rpcGetMyResearchCode(db);
         default:
           return {
             data: null,

@@ -277,6 +277,98 @@ export async function runResearchControllerTests(): Promise<void> {
       (db.assessments[1] as { score: unknown }).score === null,
       'the persisted post score must stay null (never client-trusted)',
     );
+    assert(
+      controller.getSnapshot().postAssessmentCompleted === true,
+      'completing the post assessment should record the completion evidence',
+    );
+
+    const reader = new ParticipantResearchController('walkthrough-user', persistence);
+    const hydrated = await reader.hydrate();
+    assert(
+      hydrated.postAssessmentCompleted === true,
+      'hydration should restore the post assessment evidence',
+    );
+    const researchCode = await reader.getMyResearchCode();
+    assert(researchCode.length > 0, 'a hydrated participant should read their research code');
+  }
+
+  // ---- Discovery chat: settle a candidate, reconsider, confirm -------------
+  {
+    const { persistence, db } = createHarness('discovery-chat-user');
+    const controller = new ParticipantResearchController('discovery-chat-user', persistence);
+
+    await expectThrows(
+      () => {
+        controller.proposeDomainCandidate(domain, 'Work feels heavy.');
+        return Promise.resolve();
+      },
+      'proposing before consent should be rejected',
+    );
+
+    await driveToEligible(controller, db);
+
+    const proposed = controller.proposeDomainCandidate(
+      domain,
+      '  Work keeps overwhelming me.  ',
+    );
+    assert(
+      proposed.domainDiscovery.status === 'AWAITING_CONFIRMATION',
+      'the settled statement should be presented for confirmation',
+    );
+    assert(
+      proposed.domainDiscovery.currentCandidateDomain === domain,
+      'the candidate should carry the settled statement',
+    );
+    assert(
+      proposed.domainDiscovery.participantFacingScenario === 'Work keeps overwhelming me.',
+      'the scenario should be trimmed for the confirmation screen',
+    );
+    assert(
+      proposed.workflow.phase === 'DOMAIN_DISCOVERY',
+      'proposing must not persist or advance the workflow',
+    );
+
+    await expectThrows(
+      () => {
+        controller.proposeDomainCandidate('', 'Work keeps overwhelming me.');
+        return Promise.resolve();
+      },
+      'an empty candidate should be rejected',
+    );
+
+    const reconsidered = controller.reconsiderDomainCandidate();
+    assert(
+      reconsidered.domainDiscovery.status === 'EXPLORING',
+      'reconsidering should return discovery to exploring',
+    );
+    assert(
+      reconsidered.domainDiscovery.currentCandidateDomain === null,
+      'reconsidering should clear the candidate',
+    );
+
+    const reProposed = controller.proposeDomainCandidate(
+      domain,
+      'Work keeps overwhelming me.',
+    );
+    const candidate = reProposed.domainDiscovery.currentCandidateDomain;
+    assert(candidate !== null, 'the re-proposed candidate should exist');
+    const confirmed = await controller.confirmDomainCandidate(
+      candidate as string,
+      reProposed.domainDiscovery.participantFacingScenario,
+    );
+    assert(confirmed.workflow.phase === 'DOMAIN_CONFIRMED', 'confirmation should freeze the domain');
+    assert(
+      confirmed.domainDiscovery.status === 'CONFIRMED',
+      'confirmation should complete discovery',
+    );
+
+    await expectThrows(
+      () => {
+        controller.proposeDomainCandidate(domain, 'Another thought.');
+        return Promise.resolve();
+      },
+      'proposing after confirmation should be rejected',
+    );
   }
 
   // ---- Hydration reconstructs persisted state ------------------------------
@@ -302,6 +394,10 @@ export async function runResearchControllerTests(): Promise<void> {
     assert(snapshot.screening?.status === 'eligible', 'hydrated screening should restore the resolution');
     assert(snapshot.session.currentSessionNumber === 1, 'hydrated session should be session one');
     assert(snapshot.session.sessionPhase === 'COMPLETED', 'hydrated session should reflect completion');
+    assert(
+      snapshot.postAssessmentCompleted === false,
+      'hydration without a post assessment should not record completion evidence',
+    );
     assert(
       snapshot.session.activeSummary?.keyConcerns[0] === 'stress at work',
       'hydrated session should restore the summary',
