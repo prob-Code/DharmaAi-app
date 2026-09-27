@@ -73,7 +73,9 @@ export const ResearchExperience: React.FC<ResearchExperienceProps> = ({
   testID,
 }) => {
   const copy = researchCopy;
-  const actions = { ...suppliedActions, ...createDefaultResearchActions(controller) };
+  // Protocol builders supplied by the primary integration layer win; the
+  // controller-backed defaults only fill the gaps they leave empty.
+  const actions = { ...createDefaultResearchActions(controller), ...suppliedActions };
 
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -296,7 +298,9 @@ export const ResearchExperience: React.FC<ResearchExperienceProps> = ({
         return (
           <CompletionScreen
             testID={testID}
-            onFinish={() => run('finish', actions.onFinish)}
+            onFinish={
+              actions.onFinish ? () => run('finish', actions.onFinish) : undefined
+            }
             loading={loading('finish')}
           />
         );

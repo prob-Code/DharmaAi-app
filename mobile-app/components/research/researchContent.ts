@@ -124,8 +124,8 @@ export const researchCopy = {
     eyebrow: 'This part of the journey closes here',
     title: 'Thank you.',
     body:
-      'What you shared matters, and it stays with us only as part of this study. The Companion remains — you can always return, continue the conversation, and pick up wherever you left off.',
-    continueLabel: 'Return to the Companion',
+      'What you shared matters, and it stays with us only as part of this study. Thank you for trusting this space with your time — and for being honest along the way.',
+    continueLabel: 'Continue',
   },
   introduction: {
     eyebrow: 'Welcome',

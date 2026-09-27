@@ -7,7 +7,7 @@ import { SectionContainer } from './SectionContainer';
 import { researchPalette } from './researchTheme';
 
 interface Props {
-  onFinish: () => void;
+  onFinish?: () => void;
   loading?: boolean;
   testID?: string;
 }
@@ -25,14 +25,16 @@ export const CompletionScreen: React.FC<Props> = ({
       scroll={false}
       centered
       footer={
-        <View style={styles.footer}>
-          <ResearchButton
-            label={copy.continueLabel}
-            onPress={onFinish}
-            loading={loading}
-            disabled={loading}
-          />
-        </View>
+        onFinish ? (
+          <View style={styles.footer}>
+            <ResearchButton
+              label={copy.continueLabel}
+              onPress={onFinish}
+              loading={loading}
+              disabled={loading}
+            />
+          </View>
+        ) : undefined
       }
     >
       <ScreenHeader eyebrow={copy.eyebrow} title={copy.title} />
