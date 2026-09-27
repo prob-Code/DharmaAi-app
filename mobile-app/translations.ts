@@ -73,7 +73,12 @@ export const TRANSLATIONS = {
             nowPlaying: "Now Playing",
             closePlayer: "Close Player"
         },
-        thinking: "..."
+        thinking: "...",
+        voice: {
+            listening: "Listening…",
+            processing: "One moment…",
+            error: "I didn't quite catch that. Try again."
+        }
     },
     hi: {
         greeting: "शांत रहें, {name}. मैं यहाँ हूँ। कहिए, आज के इस एकांत में आपके मन पर क्या बोझ है?",
@@ -146,7 +151,12 @@ export const TRANSLATIONS = {
             nowPlaying: "अभी चल रहा है",
             closePlayer: "प्लेयर बंद करें"
         },
-        thinking: "..."
+        thinking: "...",
+        voice: {
+            listening: "सुन रहा हूँ…",
+            processing: "एक क्षण…",
+            error: "मैंने अच्छी तरह से नहीं सुना। फिर कोशिम करें।"
+        }
     }
 };
 

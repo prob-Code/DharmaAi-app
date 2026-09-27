@@ -127,3 +127,9 @@ yarn-error.*
 # Misc
 # =============
 *.pdf
+
+# =============
+# Independent nested repositories
+# =============
+The-Chat_Rag/
+ai-infra-intelligence/

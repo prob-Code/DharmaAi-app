@@ -10,10 +10,13 @@ import { Reflections } from './components/Reflections';
 import { Videos } from './components/Videos';
 import { SettingsModal } from './components/SettingsModal';
 import { AuthScreen } from './components/auth/AuthScreen';
+import { ResearchExperience } from './components/research/ResearchExperience';
+import { createResearchProtocolActions } from './components/research/researchProtocolActions';
 import { InAppNotificationPopup } from './components/InAppNotificationPopup';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { NotificationsProvider } from './context/NotificationsContext';
 import { ThemeProvider, useTheme } from './context/ThemeContext';
+import { useParticipantResearch } from './services/research/useParticipantResearch';
 import { UserSettings, AppState } from './src/types';
 import { authService, supabase } from './services/supabase';
 import { registerForPushNotificationsAsync } from './services/pushNotifications';
@@ -30,9 +33,20 @@ const DEFAULT_SETTINGS: UserSettings = {
   volume: 0.5,
 };
 
+function researchErrorMessage(error: unknown): string | null {
+  if (error === null || error === undefined) {
+    return null;
+  }
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
+}
+
 const AppContent = () => {
   const { session, loading: authLoading, user, signOut, skipAuth } = useAuth();
   const { theme } = useTheme();
+  const research = useParticipantResearch(user?.id ?? null);
   const [appState, setAppState] = useState<AppState>(AppState.ONBOARDING);
   const [activeTab, setActiveTab] = useState<'companion' | 'reflections' | 'videos'>('companion');
   const [settings, setSettings] = useState<UserSettings>(DEFAULT_SETTINGS);
@@ -184,6 +198,29 @@ const AppContent = () => {
     loadState();
   };
 
+  const handleSettleFocus = async (statement: string) => {
+    const controller = research.controller;
+    if (controller === null) return;
+    controller.proposeDomainCandidate(statement, statement);
+  };
+
+  const handleWrapUpSession = async () => {
+    const controller = research.controller;
+    if (controller === null) return;
+    if (controller.getSnapshot().session.sessionPhase === 'OPENING') {
+      await controller.advanceActiveSession();
+    }
+    if (controller.getSnapshot().session.sessionPhase === 'ACTIVE') {
+      await controller.advanceActiveSession();
+    }
+  };
+
+  const handleTranscript = (role: 'user' | 'companion', content: string) => {
+    const controller = research.controller;
+    if (controller === null || controller.getActiveSessionId() === null) return;
+    void controller.appendTranscript(role, content).catch(() => undefined);
+  };
+
   if (authLoading || isAppLoading) {
     return (
       <View style={[styles.loadingContainer, { backgroundColor: theme.colors.background }]}>
@@ -205,11 +242,27 @@ const AppContent = () => {
       return <Videos settings={settings} />;
     }
     return (
-      <ChatInterface
-        settings={settings}
-        onUpdateSettings={updateSettings}
-        onOpenSettings={() => setShowSettings(true)}
-      />
+      <ResearchExperience
+        status={research.status}
+        snapshot={research.snapshot}
+        controller={research.controller}
+        error={researchErrorMessage(research.error)}
+        onRetry={research.retry}
+        actions={createResearchProtocolActions(research.controller, research.snapshot)}
+      >
+        {research.snapshot === null ? null : (
+          <ChatInterface
+            settings={settings}
+            onUpdateSettings={updateSettings}
+            onOpenSettings={() => setShowSettings(true)}
+            sessionState={research.snapshot.session}
+            domainDiscovery={research.snapshot.domainDiscovery}
+            onSettleFocus={handleSettleFocus}
+            onWrapUpSession={handleWrapUpSession}
+            onTranscript={handleTranscript}
+          />
+        )}
+      </ResearchExperience>
     );
   };
 

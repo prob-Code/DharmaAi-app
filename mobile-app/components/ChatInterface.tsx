@@ -1,7 +1,6 @@
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator, Image, Animated } from 'react-native';
-import { Video } from 'expo-av';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator, Image } from 'react-native';
 import * as Speech from 'expo-speech';
 import { BlurView } from 'expo-blur';
 import { Mic, Send, Music, Volume2, VolumeX, Settings, Brain } from 'lucide-react-native';
@@ -9,10 +8,17 @@ import { Message, UserSettings } from '../src/types';
 import { getTranslation } from '../translations';
 import { getAIResponse, getGeminiTTS } from '../services/gemini';
 import { getSarvamTTS } from '../services/sarvam';
-import { getSoundAsset, COLORS, KRISHNA_IMAGE, KRISHNA_VIDEO_URL, testAllSounds } from '../constants';
+import { VoiceInputService, VoiceState } from '../services/voiceInput';
+import { getSoundAsset, COLORS, KRISHNA_IMAGE, testAllSounds } from '../constants';
 import { useTheme } from '../context/ThemeContext';
 import { analyzeStress, StressAnalysisResult } from '../services/stressAnalysis';
 import { StressReport } from './StressReport';
+import { EnvironmentLayer } from './environment/EnvironmentLayer';
+import type { SessionOrchestratorState } from '../services/companion/sessionOrchestrator';
+import type { DomainDiscoveryState } from '../services/companion/domainDiscovery';
+import { createCompanionContext } from '../services/companion/companionContext';
+import { createCompanionPrompt } from '../services/companion/companionPrompt';
+import { resetTtsPresentationSignal, signalTtsInterruption, useTtsPresentationSignal } from './voice/ttsPresentationSignal';
 
 // Import Audio only for native platforms to avoid web conflicts
 let Audio: any = null;
@@ -29,20 +35,42 @@ interface Props {
     settings: UserSettings;
     onUpdateSettings: (settings: Partial<UserSettings>) => void;
     onOpenSettings: () => void;
+    sessionState: SessionOrchestratorState;
+    domainDiscovery?: DomainDiscoveryState | null;
+    onSettleFocus?: (statement: string) => void | Promise<unknown>;
+    onWrapUpSession?: () => void | Promise<unknown>;
+    onTranscript?: (role: 'user' | 'companion', content: string) => void;
 }
 
-export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onOpenSettings }) => {
+export const ChatInterface: React.FC<Props> = ({
+    settings,
+    onUpdateSettings,
+    onOpenSettings,
+    sessionState,
+    domainDiscovery = null,
+    onSettleFocus,
+    onWrapUpSession,
+    onTranscript,
+}) => {
     const { theme } = useTheme();
     const [messages, setMessages] = useState<Message[]>([]);
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
+    const [voiceState, setVoiceState] = useState<VoiceState>('IDLE');
     const [sound, setSound] = useState<any>(null);
     const [voiceSound, setVoiceSound] = useState<any>(null);
     const [isAmbientPlaying, setIsAmbientPlaying] = useState(true); // Auto-play background sound
-    const [krishnaOpacity] = useState(new Animated.Value(0));
     const [isVoiceSpeaking, setIsVoiceSpeaking] = useState(false);
+    const ttsPresentationPhase = useTtsPresentationSignal();
     const ambientVolumeRef = useRef(0);
-    const scaleAnim = useRef(new Animated.Value(1)).current;
+    const voiceSoundRef = useRef<any>(null);
+    const activeTtsTurnRef = useRef(0);
+
+    useEffect(() => {
+        voiceSoundRef.current = voiceSound;
+    }, [voiceSound]);
+
+    const conversationState = sessionState.conversationState;
     
     // Stress Report State
     const [isReportVisible, setIsReportVisible] = useState(false);
@@ -52,7 +80,6 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
 
     // Web audio ref for HTML5 Audio API
     const webAudioRef = useRef<HTMLAudioElement | null>(null);
-    const webVideoRef = useRef<HTMLVideoElement | null>(null);
 
     // Memoize dynamic styles based on theme
     const dynamicStyles = useMemo(() => ({
@@ -140,50 +167,6 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
     }, [settings.language]);
 
 
-
-    // Avatar Visual Effect: Pulse when thinking or speaking
-    useEffect(() => {
-        // Show avatar when explicitly enabled, OR temporarily show when thinking/speaking
-        const shouldShow = settings.krishnaMode || isLoading || isVoiceSpeaking;
-
-        Animated.timing(krishnaOpacity, {
-            toValue: shouldShow ? 1.0 : 0.0,
-            duration: 500,
-            useNativeDriver: true,
-        }).start();
-
-        // Handle Web video playback specifically to bypass browser autoplay restrictions
-        if (Platform.OS === 'web' && webVideoRef.current) {
-            if (shouldShow) {
-                webVideoRef.current.muted = true;
-                webVideoRef.current.play().catch(e => console.log("📹 [WEB] Background video play failed:", e));
-            } else {
-                webVideoRef.current.pause();
-            }
-        }
-
-        if (isVoiceSpeaking) {
-            // Speaking indicator: Fast heartbeat / talking pulse
-            Animated.loop(
-                Animated.sequence([
-                    Animated.timing(scaleAnim, { toValue: 1.04, duration: 250, useNativeDriver: true }),
-                    Animated.timing(scaleAnim, { toValue: 1.0, duration: 250, useNativeDriver: true })
-                ])
-            ).start();
-        } else if (isLoading) {
-            // Thinking indicator: Slow deep breathing
-            Animated.loop(
-                Animated.sequence([
-                    Animated.timing(scaleAnim, { toValue: 1.02, duration: 1000, useNativeDriver: true }),
-                    Animated.timing(scaleAnim, { toValue: 1.0, duration: 1000, useNativeDriver: true })
-                ])
-            ).start();
-        } else {
-            // Reset scale when idle
-            scaleAnim.stopAnimation();
-            Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true }).start();
-        }
-    }, [isLoading, settings.krishnaMode, isVoiceSpeaking]);
 
     // ==========================================
     // AUDIO CONFIGURATION (Mental Wellness Optimized)
@@ -664,31 +647,68 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
         }
     }, [settings.soundType]);
 
-    const playVoice = async (text: string, base64Audio?: string | null) => {
-        if (voiceSound) {
-            if (Platform.OS !== 'web' && Audio) {
-                await voiceSound.unloadAsync();
-            }
-            setVoiceSound(null);
+    const stopCurrentTtsPlayback = useCallback(async () => {
+        const currentVoiceSound = voiceSoundRef.current;
+
+        if (currentVoiceSound) {
+            signalTtsInterruption();
         }
+
+        if (currentVoiceSound && Platform.OS !== 'web' && Audio) {
+            try {
+                await currentVoiceSound.stopAsync();
+            } catch (error) {
+                console.warn('TTS stop warning:', error);
+            }
+
+            try {
+                await currentVoiceSound.unloadAsync();
+            } catch (error) {
+                console.warn('TTS unload warning:', error);
+            }
+        }
+
         Speech.stop();
+        setIsVoiceSpeaking(false);
+
+        if (voiceSoundRef.current) {
+            setVoiceSound(null);
+            voiceSoundRef.current = null;
+        }
+    }, []);
+
+    const playVoice = async (text: string, base64Audio?: string | null, ttsTurn?: number) => {
+        const playbackTurn = ttsTurn ?? ++activeTtsTurnRef.current;
+
+        if (playbackTurn !== activeTtsTurnRef.current) {
+            signalTtsInterruption();
+            return;
+        }
+
+        if (voiceServiceRef.current && voiceServiceRef.current.getState() === 'RECORDING') {
+            await voiceServiceRef.current.cancel();
+        }
+
+        await stopCurrentTtsPlayback();
+
+        if (playbackTurn !== activeTtsTurnRef.current) {
+            signalTtsInterruption();
+            return;
+        }
 
         if (!settings.voiceEnabled) return;
 
-        // Calming voice settings for mental wellness
         const getVoiceSettings = () => {
-            // Speed mapping: very-slow for deep relaxation, slow for calm, normal for regular
             const rateMap = {
-                'very-slow': 0.6,  // Deep meditation pace
-                'slow': 0.75,      // Calm, soothing pace
-                'normal': 0.85     // Slightly slower than default for comfort
+                'very-slow': 0.6,
+                'slow': 0.75,
+                'normal': 0.85
             };
 
-            // Pitch based on voice style - lower pitch is more calming
             const pitchMap = {
-                'gentle': 0.95,    // Soft, nurturing tone
-                'deep': 0.8,       // Deep, grounding voice
-                'soft': 1.0        // Natural, warm tone
+                'gentle': 0.95,
+                'deep': 0.8,
+                'soft': 1.0
             };
 
             return {
@@ -716,37 +736,65 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
                         }
                     }
                 );
+
+                if (playbackTurn !== activeTtsTurnRef.current) {
+                    signalTtsInterruption();
+                    try {
+                        await newVoice.unloadAsync();
+                    } catch (error) {
+                        console.warn('Stale TTS cleanup warning:', error);
+                    }
+                    return;
+                }
+
+                voiceSoundRef.current = newVoice;
                 setVoiceSound(newVoice);
             } catch (e) {
                 console.log("Failed to play base64, using system TTS", e);
                 Speech.speak(text, getVoiceSettings());
             }
         } else {
-            // Use enhanced calming voice settings
             Speech.speak(text, getVoiceSettings());
         }
     };
 
-    const handleSend = async () => {
-        if (!input.trim()) return;
+    const submitPrompt = async (prompt: string) => {
+        const text = prompt.trim();
+        if (!text) return;
 
         const userMsg: Message = {
             id: Date.now().toString(),
             role: 'user',
-            content: input,
+            content: text,
             timestamp: Date.now()
         };
 
         setMessages(prev => [...prev, userMsg]);
         setInput('');
         setIsLoading(true);
-
-        // Optional: Pause ambient when sending (if desired, but user might want it background)
-        // If we want to pause: 
-        // if (isAmbientPlaying) setIsAmbientPlaying(false);
+        onTranscript?.('user', text);
 
         try {
-            const aiText = await getAIResponse(userMsg.content, messages.map(m => ({ role: m.role, content: m.content })), settings.language);
+            const currentSessionState = sessionState;
+            const currentConversationState = currentSessionState.conversationState;
+
+            const companionContext = createCompanionContext(
+                text,
+                currentConversationState,
+                currentSessionState,
+                {
+                    activeSummary: currentSessionState.activeSummary ?? null,
+                    domainDiscovery,
+                },
+            );
+            const companionPrompt = createCompanionPrompt(companionContext);
+
+            const aiText = await getAIResponse(
+                text,
+                messages.map(m => ({ role: m.role, content: m.content })),
+                settings.language,
+                companionPrompt,
+            );
 
             const aiMsg: Message = {
                 id: (Date.now() + 1).toString(),
@@ -755,19 +803,29 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
                 timestamp: Date.now()
             };
             setMessages(prev => [...prev, aiMsg]);
+            onTranscript?.('companion', aiText);
             setIsLoading(false);
 
             if (settings.voiceEnabled) {
-                // Try Sarvam AI first for best quality, then fallback to Gemini flash
+                const currentTtsTurn = ++activeTtsTurnRef.current;
+
                 let audioData = await getSarvamTTS(aiText, settings.language, {
                     voiceSpeed: settings.voiceSpeed,
                 });
-                
+
+                if (currentTtsTurn !== activeTtsTurnRef.current) {
+                    return;
+                }
+
                 if (!audioData) {
                     audioData = await getGeminiTTS(aiText, settings.voiceStyle, settings.language);
                 }
-                
-                playVoice(aiText, audioData);
+
+                if (currentTtsTurn !== activeTtsTurnRef.current) {
+                    return;
+                }
+
+                await playVoice(aiText, audioData, currentTtsTurn);
             }
 
         } catch (error) {
@@ -775,6 +833,63 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
             setIsLoading(false);
             setMessages(prev => [...prev, { id: 'err', role: 'ai', content: getTranslation(settings.language, 'errors.connection'), timestamp: Date.now() }]);
         }
+    };
+
+    const handleSend = async () => {
+        await submitPrompt(input);
+    };
+
+    const voiceServiceRef = useRef<VoiceInputService | null>(null);
+
+    useEffect(() => {
+        if (!voiceServiceRef.current) {
+            voiceServiceRef.current = new VoiceInputService({
+                onStateChange: (nextState) => {
+                    setVoiceState(nextState);
+                },
+                onTranscript: async (transcript) => {
+                    await submitPrompt(transcript);
+                },
+                onError: (message) => {
+                    setVoiceState('ERROR');
+                    setInput('');
+                    setMessages(prev => [...prev, {
+                        id: `voice-error-${Date.now()}`,
+                        role: 'ai',
+                        content: message,
+                        timestamp: Date.now(),
+                    }]);
+                }
+            });
+        }
+
+        return () => {
+            activeTtsTurnRef.current += 1;
+            void stopCurrentTtsPlayback();
+            resetTtsPresentationSignal();
+            if (voiceServiceRef.current) {
+                void voiceServiceRef.current.cancel();
+                voiceServiceRef.current = null;
+            }
+        };
+    }, [stopCurrentTtsPlayback]);
+
+    const startVoiceRecording = async () => {
+        if (!voiceServiceRef.current || isLoading) return;
+
+        const hadActivePlayback = Boolean(voiceSoundRef.current) || isVoiceSpeaking;
+        if (hadActivePlayback) {
+            signalTtsInterruption();
+        }
+
+        activeTtsTurnRef.current += 1;
+        await stopCurrentTtsPlayback();
+        await voiceServiceRef.current.startRecording();
+    };
+
+    const stopVoiceRecording = async () => {
+        if (!voiceServiceRef.current) return;
+        await voiceServiceRef.current.stopAndTranscribe();
     };
 
     const handleGenerateReport = async () => {
@@ -789,6 +904,35 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
             setReportError(err.message || "Failed to analyze chat history.");
         } finally {
             setIsReportLoading(false);
+        }
+    };
+
+    const lastUserStatement =
+        [...messages].reverse().find(message => message.role === 'user')?.content ?? null;
+    const showSettleFocus =
+        domainDiscovery !== null &&
+        domainDiscovery.status === 'EXPLORING' &&
+        lastUserStatement !== null &&
+        onSettleFocus !== undefined;
+    const showWrapUpSession =
+        (sessionState.sessionPhase === 'OPENING' || sessionState.sessionPhase === 'ACTIVE') &&
+        onWrapUpSession !== undefined;
+
+    const handleSettleFocus = async () => {
+        if (lastUserStatement === null || !onSettleFocus) return;
+        try {
+            await onSettleFocus(lastUserStatement);
+        } catch (err) {
+            console.error(err);
+        }
+    };
+
+    const handleWrapUpSession = async () => {
+        if (!onWrapUpSession) return;
+        try {
+            await onWrapUpSession();
+        } catch (err) {
+            console.error(err);
         }
     };
 
@@ -807,57 +951,14 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
 
     return (
         <View style={[styles.container, dynamicStyles.containerBg]}>
-            {/* Krishna Background Layer - Centered */}
-            <View style={StyleSheet.absoluteFill} pointerEvents="none">
-                <View style={[styles.centerContent, { marginTop: -60 }]}>
-                    <Animated.View style={{ 
-                        opacity: krishnaOpacity, 
-                        transform: [{ scale: scaleAnim }],
-                        alignItems: 'center', 
-                        justifyContent: 'center',
-                        width: '100%',
-                        height: '100%'
-                    }}>
-                        
-                        {/* Platform-specific rendering */}
-                        {Platform.OS === 'web' ? (
-                            // Web: Use HTML5 video as full background
-                            <video
-                                ref={webVideoRef}
-                                autoPlay
-                                muted
-                                loop
-                                playsInline
-                                style={{
-                                    position: 'absolute',
-                                    width: '100%',
-                                    height: '100%',
-                                    objectFit: 'cover',
-                                    zIndex: 1
-                                } as any}
-                                onError={() => console.error('[ChatInterface] Video failed to load:', KRISHNA_VIDEO_URL)}
-                            >
-                                <source src={KRISHNA_VIDEO_URL} type="video/mp4" />
-                            </video>
-                        ) : (
-                            // Mobile: Use video component
-                            <Video
-                                source={{ uri: KRISHNA_VIDEO_URL }}
-                                rate={1.0}
-                                volume={0}
-                                isMuted={true}
-                                isLooping={true}
-                                shouldPlay={settings.krishnaMode || isLoading || isVoiceSpeaking}
-                                style={{...styles.krishnaImage, position: 'absolute', width: '100%', height: '100%'} as any}
-                                resizeMode={"cover" as any}
-                            />
-                        )}
-                        
-                        {/* Overlay for better text contrast */}
-                        <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.isDark ? 'rgba(0,0,0,0.3)' : 'rgba(255,255,255,0.15)', zIndex: 2 }]} />
-                    </Animated.View>
-                </View>
-            </View>
+            {/* ANANTA Companion environment — replaces the Krishna/video presence layer */}
+            <EnvironmentLayer
+                listening={voiceState === 'RECORDING'}
+                processing={isLoading || voiceState === 'PROCESSING'}
+                speaking={isVoiceSpeaking}
+                interrupted={ttsPresentationPhase !== 'normal'}
+                hasConversation={messages.length > 0}
+            />
 
             <KeyboardAvoidingView
                 behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -892,6 +993,33 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
                     </View>
                 )}
 
+                {(showSettleFocus || showWrapUpSession) && (
+                    <View style={styles.protocolRow}>
+                        {showSettleFocus && (
+                            <TouchableOpacity
+                                onPress={handleSettleFocus}
+                                disabled={isLoading}
+                                style={[styles.protocolButton, dynamicStyles.inputBorder]}
+                            >
+                                <Text style={[styles.protocolButtonText, dynamicStyles.accentColor]}>
+                                    This is my focus
+                                </Text>
+                            </TouchableOpacity>
+                        )}
+                        {showWrapUpSession && (
+                            <TouchableOpacity
+                                onPress={handleWrapUpSession}
+                                disabled={isLoading}
+                                style={[styles.protocolButton, dynamicStyles.inputBorder]}
+                            >
+                                <Text style={[styles.protocolButtonText, dynamicStyles.accentColor]}>
+                                    Wrap up this session
+                                </Text>
+                            </TouchableOpacity>
+                        )}
+                    </View>
+                )}
+
                 <View style={styles.inputWrapper}>
                     <BlurView intensity={30} tint={theme.isDark ? "dark" : "light"} style={[styles.inputContainer, dynamicStyles.inputBg, dynamicStyles.inputBorder]}>
                         <TextInput
@@ -903,8 +1031,17 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
                             multiline
                         />
                         <View style={styles.actionButtons}>
-                            {/* Mic icon could go here if implemented */}
-                            {/* Note icon for sound toggle */}
+                            <TouchableOpacity
+                                onPress={voiceState === 'RECORDING' ? stopVoiceRecording : startVoiceRecording}
+                                disabled={isLoading || voiceState === 'PROCESSING'}
+                                style={[styles.micButton, voiceState === 'RECORDING' && styles.micButtonActive]}
+                            >
+                                {voiceState === 'PROCESSING' ? (
+                                    <ActivityIndicator size="small" color={theme.colors.accent} />
+                                ) : (
+                                    <Mic size={18} color={voiceState === 'RECORDING' ? '#FFFFFF' : theme.colors.accent} />
+                                )}
+                            </TouchableOpacity>
                             <Music size={20} color={theme.colors.accent} style={{ opacity: 0.5, marginRight: 10 }} />
 
                             <TouchableOpacity onPress={handleSend} disabled={!input.trim() || isLoading} style={[styles.sendButton, dynamicStyles.sendButtonBg]}>
@@ -1001,6 +1138,27 @@ const styles = StyleSheet.create({
         borderRadius: 35,
         overflow: 'hidden',
     },
+    protocolRow: {
+        position: 'absolute',
+        bottom: 96,
+        left: 20,
+        right: 20,
+        flexDirection: 'row',
+        justifyContent: 'flex-end',
+        gap: 8,
+        zIndex: 10,
+    },
+    protocolButton: {
+        paddingVertical: 8,
+        paddingHorizontal: 14,
+        borderRadius: 18,
+        borderWidth: 1,
+        backgroundColor: 'rgba(255,255,255,0.06)',
+    },
+    protocolButtonText: {
+        fontSize: 13,
+        letterSpacing: 0.3,
+    },
     inputContainer: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -1019,6 +1177,18 @@ const styles = StyleSheet.create({
     actionButtons: {
         flexDirection: 'row',
         alignItems: 'center',
+    },
+    micButton: {
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginRight: 10,
+        backgroundColor: 'rgba(255,255,255,0.12)',
+    },
+    micButtonActive: {
+        backgroundColor: '#E76F51',
     },
     sendButton: {
         width: 40,

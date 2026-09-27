@@ -266,17 +266,16 @@ export const SettingsModal: React.FC<Props> = ({ visible, onClose, settings, onU
                         {/* ─── Legal Section ─── */}
                         <View style={styles.legalSection}>
                             <Text style={[styles.legalSectionTitle, { color: theme.colors.muted }]}>LEGAL</Text>
-                            
-                            <TouchableOpacity 
-                                style={styles.legalButton} 
+                            <TouchableOpacity
+                                style={styles.legalButton}
                                 onPress={() => setShowPrivacyPolicy(true)}
                             >
                                 <Shield color={theme.colors.accent} size={18} />
                                 <Text style={[styles.legalButtonText, { color: theme.colors.text }]}>Privacy Policy</Text>
                             </TouchableOpacity>
 
-                            <TouchableOpacity 
-                                style={styles.legalButton} 
+                            <TouchableOpacity
+                                style={styles.legalButton}
                                 onPress={() => setShowTermsOfService(true)}
                             >
                                 <FileText color={theme.colors.accent} size={18} />
@@ -291,8 +290,8 @@ export const SettingsModal: React.FC<Props> = ({ visible, onClose, settings, onU
                         </TouchableOpacity>
 
                         {/* Delete Account Button (Required by Google Play Policy) */}
-                        <TouchableOpacity 
-                            style={styles.deleteAccountButton} 
+                        <TouchableOpacity
+                            style={styles.deleteAccountButton}
                             onPress={handleDeleteAccount}
                             disabled={isDeletingAccount}
                         >
