@@ -13,6 +13,10 @@ export const youtubeRouter = Router();
 
 youtubeRouter.get("/search", async (req, res, next) => {
   try {
+    if (!env.YOUTUBE_API_KEY) {
+      return res.status(503).json({ error: "YOUTUBE_API_KEY is not configured" });
+    }
+
     const parsed = querySchema.parse(req.query);
 
     const videos = await searchYouTube({

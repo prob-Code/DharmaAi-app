@@ -2,6 +2,7 @@ import express, { Router } from "express";
 import { z } from "zod";
 import rateLimit from "express-rate-limit";
 import { env } from "../config/env";
+import { requireAuth } from "../middleware/requireAuth";
 import { getChatCompletion } from "../services/aiService";
 import { transcribeAudio } from "../services/sttService";
 
@@ -121,7 +122,7 @@ aiRouter.post("/chat", async (req, res, next) => {
   }
 });
 
-aiRouter.post("/stt", sttRateLimiter, express.raw({ type: "multipart/form-data", limit: "6mb" }), async (req, res, next) => {
+aiRouter.post("/stt", requireAuth, sttRateLimiter, express.raw({ type: "multipart/form-data", limit: "6mb" }), async (req, res, next) => {
   try {
     if (!env.SARVAM_API_KEY) {
       return res.status(503).json({ error: "SARVAM_API_KEY is not configured" });

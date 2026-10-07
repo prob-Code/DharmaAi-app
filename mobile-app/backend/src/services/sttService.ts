@@ -1,5 +1,9 @@
 import { env } from "../config/env";
 
+// Provider call bound: shorter than the mobile client's 15s timeout so the
+// backend returns a controlled 504 instead of the client seeing a raw abort.
+const STT_PROVIDER_TIMEOUT_MS = 12000;
+
 export interface SttResult {
   transcript: string;
 }
@@ -18,6 +22,10 @@ function isEmptyTranscript(value: string): boolean {
  * The audio is forwarded to Sarvam as multipart/form-data with the
  * `file` field, using the `api-subscription-key` header for auth.
  * Language is auto-detected by Sarvam (no explicit language_code sent).
+ *
+ * Timeout contract: provider calls are bounded by STT_PROVIDER_TIMEOUT_MS so
+ * a hung upstream never hangs the request — a timeout surfaces as a
+ * retryable 504, and an unreachable provider as a controlled 502.
  *
  * @param audioBuffer - Raw audio bytes (e.g. M4A/AAC from expo-av)
  * @param mimeType - Audio MIME type from the uploaded file
@@ -38,13 +46,24 @@ export async function transcribeAudio(
   formData.append("file", new Blob([new Uint8Array(audioBuffer)], { type: mimeType }), "recording.m4a");
   formData.append("model", "saaras:v3");
 
-  const response = await fetch("https://api.sarvam.ai/speech-to-text", {
-    method: "POST",
-    headers: {
-      "api-subscription-key": env.SARVAM_API_KEY,
-    },
-    body: formData,
-  });
+  let response: Response;
+  try {
+    response = await fetch("https://api.sarvam.ai/speech-to-text", {
+      method: "POST",
+      headers: {
+        "api-subscription-key": env.SARVAM_API_KEY,
+      },
+      body: formData,
+      signal: AbortSignal.timeout(STT_PROVIDER_TIMEOUT_MS),
+    });
+  } catch (error: any) {
+    const isTimeout = error?.name === "TimeoutError" || error?.name === "AbortError";
+    const apiError = new Error(
+      isTimeout ? "Sarvam STT timed out" : "Sarvam STT unreachable"
+    ) as Error & { statusCode?: number };
+    apiError.statusCode = isTimeout ? 504 : 502;
+    throw apiError;
+  }
 
   if (!response.ok) {
     const errorText = await response.text().catch(() => "Unknown error");

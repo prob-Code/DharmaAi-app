@@ -789,12 +789,13 @@ export const ChatInterface: React.FC<Props> = ({
             );
             const companionPrompt = createCompanionPrompt(companionContext);
 
-            const aiText = await getAIResponse(
+            const aiResult = await getAIResponse(
                 text,
                 messages.map(m => ({ role: m.role, content: m.content })),
                 settings.language,
                 companionPrompt,
             );
+            const aiText = aiResult.text;
 
             const aiMsg: Message = {
                 id: (Date.now() + 1).toString(),
@@ -806,7 +807,8 @@ export const ChatInterface: React.FC<Props> = ({
             onTranscript?.('companion', aiText);
             setIsLoading(false);
 
-            if (settings.voiceEnabled) {
+            // Only successful RAG answers enter the voice path.
+            if (settings.voiceEnabled && aiResult.ok) {
                 const currentTtsTurn = ++activeTtsTurnRef.current;
 
                 let audioData = await getSarvamTTS(aiText, settings.language, {

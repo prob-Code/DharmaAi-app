@@ -1,3 +1,5 @@
+import { Config } from './config';
+
 export const COLORS = {
     background: '#030303',     // OLED Black
     surface: '#111111',        // Elevated surface
@@ -20,13 +22,13 @@ export const ONBOARDING_QUESTIONS = [
 // Using a more painterly, artistic depiction for the "Presence"
 export const KRISHNA_IMAGE = require('./assets/krishna.png');
 export const KRISHNA_IMAGE_URL = "https://example.com/krishna.png"; // Fallback
-export const KRISHNA_VIDEO_URL = "https://mtiltptnumjoaibgpvzb.supabase.co/storage/v1/object/public/assets/krishna_intro.mp4";
+export const KRISHNA_VIDEO_URL = `${Config.SUPABASE_URL}/storage/v1/object/public/assets/krishna_intro.mp4`;
 
 // Therapeutic ambient sounds for mental wellness
 // Using SUPABASE STORAGE to reduce app bundle size and fix Out of Memory errors
 export type SoundName = 'flute' | 'rain' | 'waves' | 'om' | 'healing' | 'silence';
 
-const SUPABASE_URL = 'https://mtiltptnumjoaibgpvzb.supabase.co';
+const SUPABASE_URL = Config.SUPABASE_URL;
 
 // Sound file mapping - exact names in Supabase bucket
 const SOUND_URLS: Record<string, string> = {

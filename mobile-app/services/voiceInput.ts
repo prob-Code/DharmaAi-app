@@ -1,5 +1,6 @@
 import { Audio } from 'expo-av';
 import { Config } from '../config';
+import { supabase } from './supabase';
 
 export type VoiceState = 'IDLE' | 'RECORDING' | 'PROCESSING' | 'TRANSCRIBED' | 'ERROR';
 
@@ -14,8 +15,27 @@ const STT_TIMEOUT_MS = 15000;
 /**
  * Uploads a recorded audio file to the backend STT endpoint as multipart/form-data.
  * The backend performs automatic language detection and returns a transcript.
+ *
+ * The request carries the authenticated Supabase session's access token
+ * (`Authorization: Bearer <token>`) so the backend can validate it against the
+ * existing Supabase auth infrastructure. No service-role or private credential
+ * ever leaves the server.
+ *
+ * Response classification (preserved hardening):
+ *  - 401 -> session expired/invalid (user must sign in again)
+ *  - 403 -> account not allowed to use this route
+ *  - 413 -> recording too large
+ *  - 429 -> rate limited
+ *  - 5xx -> controlled retryable provider/service failure
+ * Timeout aborts the underlying request (AbortController) so the upload truly
+ * stops instead of silently continuing in the background.
  */
 async function sendAudioToBackend(fileUri: string): Promise<string> {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  const accessToken = session?.access_token ?? null;
+
   const response = await fetch(fileUri);
   const blob = await response.blob();
 
@@ -23,33 +43,68 @@ async function sendAudioToBackend(fileUri: string): Promise<string> {
   formData.append('file', blob, 'recording.m4a');
   formData.append('model', 'saaras:v3');
 
-  const sttResponse = await fetch(`${Config.BACKEND_URL}/api/ai/stt`, {
-    method: 'POST',
-    body: formData,
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), STT_TIMEOUT_MS);
 
-  if (!sttResponse.ok) {
-    let errorMessage = `STT request failed (${sttResponse.status})`;
-    try {
-      const errorData = await sttResponse.json();
-      errorMessage = errorData.error || errorMessage;
-    } catch {
-      // Use default error message
+  try {
+    const sttResponse = await fetch(`${Config.BACKEND_URL}/api/ai/stt`, {
+      method: 'POST',
+      body: formData,
+      headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+      signal: controller.signal,
+    });
+
+    if (sttResponse.status === 401) {
+      throw new Error('Authentication expired');
     }
-    throw new Error(errorMessage);
-  }
+    if (sttResponse.status === 403) {
+      throw new Error('Voice input is not available for your account');
+    }
+    if (sttResponse.status === 413) {
+      throw new Error('Recording too long to transcribe');
+    }
+    if (sttResponse.status === 429) {
+      throw new Error('Rate limit exceeded');
+    }
+    if (sttResponse.status >= 500) {
+      throw new Error('STT service temporarily unavailable');
+    }
+    if (!sttResponse.ok) {
+      let errorMessage = `STT request failed (${sttResponse.status})`;
+      try {
+        const errorData = await sttResponse.json();
+        errorMessage = errorData.error || errorMessage;
+      } catch {
+        // Use default error message
+      }
+      throw new Error(errorMessage);
+    }
 
-  const data = await sttResponse.json();
-  if (!data.transcript || typeof data.transcript !== 'string') {
-    throw new Error('Malformed response from STT endpoint');
-  }
+    const data = await sttResponse.json();
+    if (!data.transcript || typeof data.transcript !== 'string') {
+      throw new Error('Malformed response from STT endpoint');
+    }
 
-  const transcript = data.transcript.trim();
-  if (!transcript || /^(silence|no speech|no audio|empty)$/.test(transcript.toLowerCase())) {
-    throw new Error('No speech detected');
-  }
+    const transcript = data.transcript.trim();
+    if (!transcript || /^(silence|no speech|no audio|empty)$/.test(transcript.toLowerCase())) {
+      throw new Error('No speech detected');
+    }
 
-  return transcript;
+    return transcript;
+  } catch (error: any) {
+    // A client-side abort (our 15s timeout) and a network-level abort are both
+    // retryable "timed out" classifications. Genuine user cancellation is
+    // handled separately by the caller's isCancelled guard — never here.
+    if (
+      error?.name === 'AbortError' ||
+      (error?.message && String(error.message).toLowerCase().includes('abort'))
+    ) {
+      throw new Error('STT request timed out');
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 export class VoiceInputService {
@@ -208,6 +263,18 @@ export class VoiceInputService {
       } else if (message.includes('Rate limit')) {
         this.setState('ERROR');
         this.callbacks.onError("I'm a bit busy right now. Please wait a moment and try again.");
+      } else if (
+        message.includes('Authentication expired') ||
+        message.includes('session has ended')
+      ) {
+        this.setState('ERROR');
+        this.callbacks.onError('Your session has ended. Please sign in again.');
+      } else if (message.includes('not available for your account')) {
+        this.setState('ERROR');
+        this.callbacks.onError('Voice input is not available for your account right now.');
+      } else if (message.includes('temporarily unavailable')) {
+        this.setState('ERROR');
+        this.callbacks.onError('Voice input is temporarily unavailable. Please try again.');
       } else if (message.includes('not configured')) {
         this.setState('ERROR');
         this.callbacks.onError("Voice input is not yet available. Please try typing.");

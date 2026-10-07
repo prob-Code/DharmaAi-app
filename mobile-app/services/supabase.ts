@@ -3,10 +3,16 @@ import { createClient } from '@supabase/supabase-js';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Linking from 'expo-linking';
 import Constants from 'expo-constants';
+import { Config } from '../config';
 
-// Supabase Configuration
-const SUPABASE_URL = 'https://mtiltptnumjoaibgpvzb.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im10aWx0cHRudW1qb2FpYmdwdnpiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzExMzU1MTAsImV4cCI6MjA4NjcxMTUxMH0.vfzZ-I306Xb0RIGYLYGSoa-96FtjAOqQlnTgoDTkyVY';
+// Supabase Configuration (single source from config.ts, environment-driven).
+const SUPABASE_URL = Config.SUPABASE_URL;
+const SUPABASE_ANON_KEY = Config.SUPABASE_ANON_KEY;
+
+// Storage key used by supabase-js session persistence; derived from the
+// project-ref portion of the hostname so sign-out cleanup stays correct when
+// the client project is switched via environment.
+const SB_STORAGE_KEY = `sb-${SUPABASE_URL.split('://')[1].split('.')[0]}-auth-token`;
 
 const executionEnvironment = (Constants as any)?.executionEnvironment;
 const isExpoGo = executionEnvironment === 'storeClient';
@@ -380,12 +386,12 @@ export const authService = {
             if (error) {
                 console.error('[Auth] Sign out error:', error.message);
                 // Clear local session even if server sign-out fails
-                await AsyncStorage.removeItem('sb-mtiltptnumjoaibgpvzb-auth-token');
+                await AsyncStorage.removeItem(SB_STORAGE_KEY);
             }
         } catch (error: any) {
             console.error('[Auth] Sign out error:', error.message);
             // Clear local session as fallback
-            await AsyncStorage.removeItem('sb-mtiltptnumjoaibgpvzb-auth-token');
+            await AsyncStorage.removeItem(SB_STORAGE_KEY);
         }
     },
 

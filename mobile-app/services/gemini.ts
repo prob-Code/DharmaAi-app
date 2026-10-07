@@ -46,74 +46,140 @@ export async function getEmbedding(text: string): Promise<number[] | null> {
     }
 }
 
+export interface RagChatResult {
+    ok: boolean;
+    text: string;
+}
+
+// Production RAG endpoint. The AWS Lambda resolves the Gita knowledge base
+// server-side and authenticates the caller with a Supabase access token
+// (Authorization: Bearer <access_token>). It returns a `{ ok, text }`
+// envelope; failed responses must never enter the voice path.
+const RAG_CHAT_URL = 'https://umeb6yo26i43ac3sokedfjhgs40keuig.lambda-url.ap-south-1.on.aws/chat';
+
+async function callRagChat(
+    accessToken: string,
+    payload: Record<string, unknown>,
+): Promise<Response> {
+    return fetch(RAG_CHAT_URL, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify(payload),
+    });
+}
+
 export async function getAIResponse(
     prompt: string,
     history: any[],
     language: Language = 'en',
     companionPrompt?: CompanionPromptPayload | null,
-) {
+): Promise<RagChatResult> {
+    const retrievalQuestion = prompt.trim();
+    const companionContextPayload = buildRagCompanionContext(companionPrompt);
+
+    // Preserve the companion context payload exactly.
+    const payload: Record<string, unknown> = {
+        question: retrievalQuestion,
+    };
+
+    if (companionContextPayload) {
+        payload.companion_context = companionContextPayload;
+    }
+
     try {
-        const RAGGITA_KEY = Config.RAGGITA_API_KEY;
-        const retrievalQuestion = prompt.trim();
-        const companionContextPayload = buildRagCompanionContext(companionPrompt);
+        const { data: sessionData } = await supabase.auth.getSession();
+        const accessToken = sessionData.session?.access_token;
 
-        // Check if API key is configured
-        if (!RAGGITA_KEY) {
-            console.error("❌ RAGGITA API key not configured");
-            return language === 'hi'
-                ? "कृपया config.ts में अपनी RAGGITA API key जोड़ें।"
-                : "Please add your RAGGITA API key in config.ts.";
+        if (!accessToken) {
+            console.error("❌ RAG chat requires an authenticated Supabase session");
+            return {
+                ok: false,
+                text: language === 'hi'
+                    ? "आपका सत्र समाप्त हो गया है। कृपया फिर से साइन इन करें।"
+                    : "Your session has ended. Please sign in again.",
+            };
         }
 
-        console.log("🙏 Sending question to RAGGITA API...");
+        let res = await callRagChat(accessToken, payload);
 
-        const payload: Record<string, unknown> = {
-            question: retrievalQuestion,
-        };
-
-        if (companionContextPayload) {
-            payload.companion_context = companionContextPayload;
+        // Expired access token? Refresh exactly once, then retry.
+        if (res.status === 401) {
+            console.log("♻️ Refreshing Supabase session and retrying RAG chat...");
+            const { data: refreshed, error: refreshError } = await supabase.auth.refreshSession();
+            const refreshedToken = refreshed.session?.access_token;
+            if (!refreshError && refreshedToken) {
+                res = await callRagChat(refreshedToken, payload);
+            }
         }
 
-        const res = await fetch("https://agentcrafter-rag-gita.hf.space/chat", {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "X-API-Key": RAGGITA_KEY,
-            },
-            body: JSON.stringify(payload),
-        });
+        if (res.status === 401) {
+            console.error("❌ RAG chat unauthorized after token refresh");
+            return {
+                ok: false,
+                text: language === 'hi'
+                    ? "आपका सत्र समाप्त हो गया है। कृपया फिर से साइन इन करें।"
+                    : "Your session has ended. Please sign in again.",
+            };
+        }
+
+        if (res.status === 403) {
+            console.error("❌ RAG chat forbidden (403)");
+            return {
+                ok: false,
+                text: language === 'hi'
+                    ? "यह सुविधा आपके खाते के लिए अभी उपलब्ध नहीं है।"
+                    : "This feature is not available for your account right now.",
+            };
+        }
+
+        if ([500, 502, 503, 504].includes(res.status)) {
+            console.error(`❌ RAG chat upstream failure (${res.status})`);
+            return {
+                ok: false,
+                text: language === 'hi'
+                    ? "Companion AI अभी उपलब्ध नहीं है। कृपया थोड़ी देर बाद प्रयास करें।"
+                    : "Companion AI is temporarily unavailable. Please try again shortly.",
+            };
+        }
 
         if (!res.ok) {
-            const errorText = await res.text();
-            console.error("❌ RAGGITA API error:", res.status, errorText);
-
-            const isUpstreamFailure = [500, 502, 503, 504].includes(res.status);
-            if (isUpstreamFailure) {
-                return language === 'hi'
-                    ? "Companion AI अभी उपलब्ध नहीं है। बाहरी RAG सर्विस डाउन है।"
-                    : "Companion AI is temporarily unavailable. The external RAG service is down.";
-            }
-
-            return language === 'hi'
-                ? `API त्रुटि: ${res.status}. कृपया अपनी API key जांचें।`
-                : `API error: ${res.status}. Please check your API key.`;
+            console.error(`❌ RAG chat API error: ${res.status}`);
+            return {
+                ok: false,
+                text: language === 'hi'
+                    ? `API त्रुटि: ${res.status}. कृपया पुनः प्रयास करें।`
+                    : `API error: ${res.status}. Please try again.`,
+            };
         }
 
         const data = await res.json();
-        let text = data.answer;
+        if (data && typeof data.ok === 'boolean') {
+            const text = typeof data.text === 'string' ? data.text : '';
 
-        if (!text) {
-            console.error("❌ Empty response from RAGGITA API");
-            return getTranslation(language, 'errors.empty');
+            if (data.ok) {
+                if (text) {
+                    console.log("✅ Got RAG response");
+                    return { ok: true, text };
+                }
+                console.error("❌ Empty response from RAG API");
+                return { ok: false, text: getTranslation(language, 'errors.empty') };
+            }
+
+            // The RAG service itself reported a controlled failure — surfaced
+            // as text only, never spoken.
+            console.error("❌ RAG service reported failure:", text || '(no message)');
+            return { ok: false, text: text || getTranslation(language, 'errors.connection') };
         }
 
-        console.log("✅ Got RAGGITA response");
-        return text;
+        console.error("❌ Malformed RAG response");
+        return { ok: false, text: getTranslation(language, 'errors.connection') };
 
     } catch (err) {
-        console.error("❌ RAGGITA API error:", err);
-        return getTranslation(language, 'errors.connection');
+        console.error("❌ RAG chat error:", err);
+        return { ok: false, text: getTranslation(language, 'errors.connection') };
     }
 }
 
