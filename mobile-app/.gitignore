@@ -39,3 +39,6 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# EAS Play Store service account (never commit)
+play-store-key.json

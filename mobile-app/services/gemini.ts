@@ -57,18 +57,31 @@ export interface RagChatResult {
 // envelope; failed responses must never enter the voice path.
 const RAG_CHAT_URL = 'https://umeb6yo26i43ac3sokedfjhgs40keuig.lambda-url.ap-south-1.on.aws/chat';
 
+// Bounded client-side timeout for the production RAG fetch. A hung or
+// unreachable Lambda surfaces as a controlled {ok:false} connection error in
+// getAIResponse — it never hangs the UI and never reaches TTS. Applies to
+// both the initial request and the single 401 refresh/retry.
+const RAG_TIMEOUT_MS = 15000;
+
 async function callRagChat(
     accessToken: string,
     payload: Record<string, unknown>,
 ): Promise<Response> {
-    return fetch(RAG_CHAT_URL, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify(payload),
-    });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), RAG_TIMEOUT_MS);
+    try {
+        return await fetch(RAG_CHAT_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${accessToken}`,
+            },
+            body: JSON.stringify(payload),
+            signal: controller.signal,
+        });
+    } finally {
+        clearTimeout(timeout);
+    }
 }
 
 export async function getAIResponse(
