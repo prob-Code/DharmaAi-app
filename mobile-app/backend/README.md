@@ -8,6 +8,7 @@ Production-ready TypeScript Express backend for the mobile app.
 - YouTube search proxy endpoint
 - AI chat proxy endpoint (OpenRouter)
 - Speech-to-text endpoint (Sarvam `saaras:v3`)
+- Text-to-speech endpoint (Sarvam `bulbul:v3`, authenticated, server-side key)
 - Socket.IO realtime server for live events
 - Input validation with Zod
 - Security middleware (Helmet, CORS, rate-limiting)
@@ -27,7 +28,7 @@ cp .env.example .env
 - `NODE_ENV` (`development` | `test` | `production`)
 - `CORS_ORIGIN` (allowed origin; default `*`)
 - `SUPABASE_URL` + `SUPABASE_ANON_KEY` (required to validate bearer tokens on the authenticated `/api/ai/stt` route; publishable anon key only — never the `service_role` key)
-- `SARVAM_API_KEY` (required for the `/api/ai/stt` speech-to-text route)
+- `SARVAM_API_KEY` (required for the `/api/ai/stt` speech-to-text and `/api/ai/tts` text-to-speech routes)
 - `OPENROUTER_API_KEY` (optional if AI route not used)
 - `YOUTUBE_API_KEY` (only required if the YouTube search proxy is used)
 
@@ -58,11 +59,12 @@ npm start
 - `GET /api/youtube/search?q=meditation&maxResults=12&language=en`
 - `POST /api/ai/chat`
 - `POST /api/ai/stt` (multipart `file` field, max ~5 MB audio; requires `Authorization: Bearer <Supabase access token>`)
+- `POST /api/ai/tts` (JSON `{ "text": string (1–1000 chars), "language"?: "en"|"hi", "voiceSpeed"?: "very-slow"|"slow"|"normal" }` → `{ "audio": "<base64>" }`; requires `Authorization: Bearer <Supabase access token>`, rate-limited)
 
 ## Authentication
 
-The protected route (`POST /api/ai/stt`) requires the mobile app's authenticated
-Supabase session token:
+The protected routes (`POST /api/ai/stt`, `POST /api/ai/tts`) require the mobile
+app's authenticated Supabase session token:
 
 ```
 Authorization: Bearer <supabase-access-token>
@@ -78,7 +80,7 @@ Error contract:
 - authenticated but forbidden   -> `403`
 - server auth not configured    -> `503`
 - auth service timeout          -> `504`
-- provider (Sarvam) failure     -> controlled `5xx` (`502` unreachable / `504` timeout / Sarvam status passthrough)
+- provider (Sarvam) failure     -> controlled `5xx` (`502` unreachable / `504` timeout / provider status passthrough)
 
 ## Realtime Events (Socket.IO)
 

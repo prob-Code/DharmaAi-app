@@ -5,6 +5,7 @@ import { env } from "../config/env";
 import { requireAuth } from "../middleware/requireAuth";
 import { getChatCompletion } from "../services/aiService";
 import { transcribeAudio } from "../services/sttService";
+import { synthesizeSpeech } from "../services/ttsService";
 
 const bodySchema = z.object({
   messages: z
@@ -24,6 +25,22 @@ const sttRateLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Rate limit exceeded for speech-to-text" }
+});
+
+// Strict rate limiter for TTS: 30 requests per minute per IP
+const ttsRateLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Rate limit exceeded for text-to-speech" }
+});
+
+// TTS input contract: bounded text, optional language and voice speed.
+const ttsBodySchema = z.object({
+  text: z.string().trim().min(1).max(1000),
+  language: z.enum(["en", "hi"]).optional().default("en"),
+  voiceSpeed: z.enum(["very-slow", "slow", "normal"]).optional().default("slow")
 });
 
 // Max audio payload: 5 MB multipart upload
@@ -161,6 +178,33 @@ aiRouter.post("/stt", requireAuth, sttRateLimiter, express.raw({ type: "multipar
 
     // No audio persistence — transcript is returned, file is discarded
     res.json({ transcript: result.transcript.trim() });
+  } catch (error: any) {
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ error: error.message });
+    }
+    next(error);
+  }
+});
+
+// Authenticated Sarvam text-to-speech. `requireAuth` runs first so
+// unauthenticated calls never reach the provider. Returns base64 audio that
+// the mobile client plays locally; the Sarvam API key never leaves the server.
+aiRouter.post("/tts", requireAuth, ttsRateLimiter, async (req, res, next) => {
+  try {
+    if (!env.SARVAM_API_KEY) {
+      return res.status(503).json({ error: "SARVAM_API_KEY is not configured" });
+    }
+
+    const parsed = ttsBodySchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        error: "Invalid TTS request",
+        details: parsed.error.flatten().fieldErrors
+      });
+    }
+
+    const result = await synthesizeSpeech(parsed.data);
+    res.json({ audio: result.audioBase64 });
   } catch (error: any) {
     if (error.statusCode) {
       return res.status(error.statusCode).json({ error: error.message });
