@@ -1,0 +1,163 @@
+rules_version = '2';
+
+// ============================================================
+//  Saarthi — Firestore security rules
+//
+//  Ye file un 28 Supabase RLS policies ki jagah leti hai.
+//  Har rule ka maqsad wahi hai jo pehle RLS ka tha:
+//    - padhna zyadatar public (feed, profiles, communities)
+//    - likhna sirf apne naam se
+//    - DM sirf usme shaamil do logon ko
+//    - notifications aur push tokens sirf apne
+// ============================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------- helpers ----------
+    function signedIn() {
+      return request.auth != null;
+    }
+    function uid() {
+      return request.auth.uid;
+    }
+    function isSelf(userId) {
+      return signedIn() && uid() == userId;
+    }
+    // create ho rahe doc me user_id apna hi hona chahiye
+    function ownsNew(field) {
+      return signedIn() && request.resource.data[field] == uid();
+    }
+    // maujooda doc ka maalik
+    function ownsExisting(field) {
+      return signedIn() && resource.data[field] == uid();
+    }
+    // sirf ye fields badle hain?
+    function onlyChanged(fields) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(fields);
+    }
+
+    // ---------- profiles ----------
+    // Pehle: "Public profiles are viewable by everyone" + apna hi insert/update
+    match /profiles/{userId} {
+      allow read:   if true;
+      allow create: if isSelf(userId);
+      allow update: if isSelf(userId);
+      allow delete: if isSelf(userId);
+    }
+
+    // ---------- posts ----------
+    match /posts/{postId} {
+      allow read: if true;
+      allow create: if ownsNew('user_id')
+                    && request.resource.data.likes_count == 0
+                    && request.resource.data.comments_count == 0;
+      // maalik poora post edit kar sakta hai
+      allow update: if ownsExisting('user_id')
+      // koi bhi signed-in user sirf counters badal sakta hai (like/comment ke liye)
+                    || (signedIn() && onlyChanged(['likes_count', 'comments_count']));
+      allow delete: if ownsExisting('user_id');
+
+      // ----- comments (post ke andar) -----
+      match /comments/{commentId} {
+        allow read:   if true;
+        allow create: if ownsNew('user_id');
+        allow update: if ownsExisting('user_id');
+        // apna comment, ya apni post par aaya koi bhi comment hata sakte ho
+        allow delete: if ownsExisting('user_id')
+                      || isSelf(get(/databases/$(database)/documents/posts/$(postId)).data.user_id);
+      }
+
+      // ----- likes: doc id hi user id hai, isliye duplicate like namumkin -----
+      match /likes/{likeUserId} {
+        allow read:   if true;
+        allow create: if isSelf(likeUserId);
+        allow delete: if isSelf(likeUserId);
+        allow update: if false;
+      }
+    }
+
+    // ---------- follows ----------
+    // profiles/{uid}/following/{target}  aur  profiles/{uid}/followers/{source}
+    match /profiles/{userId}/following/{targetId} {
+      allow read:   if true;
+      allow write:  if isSelf(userId);          // sirf tum apni following list badal sakte ho
+    }
+    match /profiles/{userId}/followers/{sourceId} {
+      allow read:   if true;
+      // doosra banda tumhe follow karta hai, to wo apni id se hi entry daal sakta hai
+      allow create: if isSelf(sourceId);
+      allow delete: if isSelf(sourceId) || isSelf(userId);
+      allow update: if false;
+    }
+
+    // ---------- direct messages ----------
+    // conversations/{convId} me convId = dono uids sort karke joined
+    match /conversations/{convId} {
+      function participants() {
+        return resource.data.participants;
+      }
+      allow read:   if signedIn() && uid() in resource.data.participants;
+      allow create: if signedIn()
+                    && uid() in request.resource.data.participants
+                    && request.resource.data.participants.size() == 2;
+      allow update: if signedIn() && uid() in resource.data.participants;
+      allow delete: if false;
+
+      match /messages/{messageId} {
+        function convParticipants() {
+          return get(/databases/$(database)/documents/conversations/$(convId)).data.participants;
+        }
+        // sirf conversation ke do log hi padh sakte hain
+        allow read: if signedIn() && uid() in convParticipants();
+        // bhejne wala sirf apne naam se bhej sakta hai
+        allow create: if ownsNew('sender_id') && uid() in convParticipants();
+        // paane wala sirf is_read toggle kar sakta hai, content nahi
+        allow update: if signedIn()
+                      && uid() == resource.data.receiver_id
+                      && onlyChanged(['is_read']);
+        allow delete: if ownsExisting('sender_id');
+      }
+    }
+
+    // ---------- communities ----------
+    match /communities/{communityId} {
+      allow read: if true;
+      allow create: if ownsNew('creator_id');
+      allow update: if ownsExisting('creator_id')
+                    || (signedIn() && onlyChanged(['member_count']));
+      allow delete: if ownsExisting('creator_id');
+
+      match /members/{memberId} {
+        allow read:   if true;
+        // apne aap ko hi join/leave kar sakte ho; creator kisi ko bhi hata sakta hai
+        allow create: if isSelf(memberId);
+        allow delete: if isSelf(memberId)
+                      || isSelf(get(/databases/$(database)/documents/communities/$(communityId)).data.creator_id);
+        allow update: if isSelf(get(/databases/$(database)/documents/communities/$(communityId)).data.creator_id);
+      }
+    }
+
+    // ---------- notifications ----------
+    // Per-user subtree — isliye rule bilkul simple aur airtight hai
+    match /notifications/{userId}/items/{notificationId} {
+      // sirf tum apni notifications padh sakte ho
+      allow read:   if isSelf(userId);
+      // koi bhi signed-in user tumhe notification bhej sakta hai (like/comment/follow)
+      allow create: if signedIn();
+      // par sirf tum use read mark kar sakte ho
+      allow update: if isSelf(userId) && onlyChanged(['is_read']);
+      allow delete: if isSelf(userId);
+    }
+
+    // ---------- push tokens ----------
+    match /pushTokens/{userId}/tokens/{tokenId} {
+      allow read, write: if isSelf(userId);
+    }
+
+    // ---------- baaki sab band ----------
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

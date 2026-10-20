@@ -1,22 +1,43 @@
 
+import { Platform } from 'react-native';
+
 // Configure your API keys through Expo public env vars.
 // In production, these should be set in EAS Secrets or .env file.
 // NEVER commit actual API keys to source control.
-const GROQ_API_KEY = process.env.EXPO_PUBLIC_GROQ_API_KEY ?? "";
-const GEMINI_API_KEY = process.env.EXPO_PUBLIC_GEMINI_API_KEY ?? "";
-const SARVAM_API_KEY = process.env.EXPO_PUBLIC_SARVAM_API_KEY ?? "";
-const RAGGITA_API_KEY = process.env.EXPO_PUBLIC_RAGGITA_API_KEY ?? "";
-const STRESS_API_KEY = process.env.EXPO_PUBLIC_STRESS_API_KEY ?? "";
-const STRESS_API_URL = process.env.EXPO_PUBLIC_STRESS_API_URL ?? "https://agentcrafter-dharmaai-stress-analyzer.hf.space";
-const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL ?? "https://your-production-backend.com";
+const configuredBackendUrl = (process.env.EXPO_PUBLIC_BACKEND_URL ?? "").replace(/\/+$/, "");
+// Android emulator uses 10.0.2.2 to reach the development machine. Physical
+// devices should use the computer's LAN address or a deployed HTTPS backend.
+const BACKEND_URL = Platform.OS === 'android'
+    ? configuredBackendUrl.replace('://localhost', '://10.0.2.2').replace('://127.0.0.1', '://10.0.2.2')
+    : configuredBackendUrl;
 
-export const Config = {
-    GROQ_API_KEY,
-    GEMINI_API_KEY,
-    SARVAM_API_KEY,
-    RAGGITA_API_KEY,
-    STRESS_API_KEY,
-    STRESS_API_URL,
-    BACKEND_URL
+// --- Chat model (RagGita on AWS Lambda Function URL) ---
+// BASE url only — koi trailing slash nahi. Endpoint path code me add hota hai (/chat, /health).
+const CHAT_API_URL = (process.env.EXPO_PUBLIC_CHAT_API_URL
+    ?? "https://lht7s7xvklyxrd46xwgi22x23i0ofhyn.lambda-url.ap-south-1.on.aws"
+).replace(/\/+$/, "");
+
+// --- Firebase public app configuration ---
+// Firebase web configuration is public by design; provider API keys are not.
+// Ye wahi project hai jo RagGita web app use karta hai: sarrthi-d81d3
+// (Firebase web config public hoti hai by design — ye secret nahi hai.)
+const FIREBASE_CONFIG = {
+    apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY ?? "AIzaSyDiRGj-hlHnjnqRC21LeVikYw_l5MWqA50",
+    authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN ?? "sarrthi-d81d3.firebaseapp.com",
+    projectId: process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID ?? "sarrthi-d81d3",
+    storageBucket: process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET ?? "sarrthi-d81d3.firebasestorage.app",
+    messagingSenderId: process.env.EXPO_PUBLIC_FIREBASE_SENDER_ID ?? "242606699113",
+    appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID ?? "1:242606699113:web:cdc4de0e404693d321e8f8",
 };
 
+// Google OAuth Web client ID — Firebase Console → Authentication →
+// Sign-in method → Google → "Web SDK configuration" me milta hai.
+// Iske bina Google sign-in nahi chalega.
+const GOOGLE_WEB_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID ?? "";
+
+export const Config = {
+    GOOGLE_WEB_CLIENT_ID,
+    BACKEND_URL,
+    CHAT_API_URL,
+    FIREBASE_CONFIG
+};

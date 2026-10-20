@@ -8,6 +8,9 @@ import { notFound } from "./middleware/notFound";
 import { aiRouter } from "./routes/ai";
 import { healthRouter } from "./routes/health";
 import { youtubeRouter } from "./routes/youtube";
+import { stressRouter } from "./routes/stress";
+import { ttsRouter } from "./routes/tts";
+import { livekitRouter } from "./routes/livekit";
 
 export function createApp() {
   const app = express();
@@ -33,6 +36,9 @@ export function createApp() {
   app.use("/api/health", healthRouter);
   app.use("/api/youtube", youtubeRouter);
   app.use("/api/ai", aiRouter);
+  app.use("/api/stress", stressRouter);
+  app.use("/api/tts", ttsRouter);
+  app.use("/api/livekit", livekitRouter);
 
   app.use(notFound);
   app.use(errorHandler);

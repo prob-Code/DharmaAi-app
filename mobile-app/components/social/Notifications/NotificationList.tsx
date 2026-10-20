@@ -12,6 +12,7 @@ import { Bell, Heart, MessageCircle, UserPlus, Users, AtSign, Sparkles, ArrowLef
 import { Avatar } from '../Common/Avatar';
 import { Notification, NotificationType } from '../../../types/social';
 import { formatDistanceToNow } from 'date-fns';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 interface NotificationListProps {
     notifications: Notification[];
@@ -49,7 +50,10 @@ interface NotificationItemProps {
 }
 
 const NotificationItem: React.FC<NotificationItemProps> = ({ notification, onPress }) => {
-    const timeAgo = formatDistanceToNow(new Date(notification.createdAt), { addSuffix: true });
+    const parsedDate = new Date(notification.createdAt);
+    const timeAgo = Number.isNaN(parsedDate.getTime())
+        ? 'Just now'
+        : formatDistanceToNow(parsedDate, { addSuffix: true });
     const isVideoCall = notification.type === 'video_call';
 
     return (
@@ -94,6 +98,7 @@ export const NotificationList: React.FC<NotificationListProps> = ({
     onBack,
 }) => {
     const [refreshing, setRefreshing] = React.useState(false);
+    const insets = useSafeAreaInsets();
 
     const handleRefresh = async () => {
         setRefreshing(true);
@@ -158,7 +163,7 @@ export const NotificationList: React.FC<NotificationListProps> = ({
                         tintColor={COLORS.accent}
                     />
                 }
-                contentContainerStyle={styles.listContent}
+                contentContainerStyle={[styles.listContent, { paddingTop: Math.max(insets.top, 12) }]}
                 showsVerticalScrollIndicator={false}
             />
         </View>

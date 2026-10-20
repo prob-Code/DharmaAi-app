@@ -75,13 +75,13 @@ export const Onboarding: React.FC<Props> = ({ onComplete, settings, onUpdateSett
 
                     <View style={styles.langContainer}>
                         <TouchableOpacity onPress={() => handleLanguageSelect('en')} style={styles.langButton}>
-                            <BlurView intensity={20} tint="dark" style={StyleSheet.absoluteFillObject} pointerEvents="none" />
+                            <BlurView intensity={20} tint="dark" style={StyleSheet.absoluteFill} pointerEvents="none" />
                             <Text style={styles.langTitle}>English</Text>
                             <Text style={styles.langSubtitle}>LANGUAGE</Text>
                         </TouchableOpacity>
 
                         <TouchableOpacity onPress={() => handleLanguageSelect('hi')} style={styles.langButton}>
-                            <BlurView intensity={20} tint="dark" style={StyleSheet.absoluteFillObject} pointerEvents="none" />
+                            <BlurView intensity={20} tint="dark" style={StyleSheet.absoluteFill} pointerEvents="none" />
                             <Text style={styles.langTitle}>हिंदी</Text>
                             <Text style={styles.langSubtitle}>भाषा</Text>
                         </TouchableOpacity>

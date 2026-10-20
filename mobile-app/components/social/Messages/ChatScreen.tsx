@@ -8,9 +8,9 @@ import {
     TextInput,
     TouchableOpacity,
     KeyboardAvoidingView,
-    Platform,
-    SafeAreaView
+    Platform
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { ArrowLeft, Send, MoreVertical, Shield } from 'lucide-react-native';
 import { Avatar } from '../Common/Avatar';
 import { Message, User } from '../../../types/social';

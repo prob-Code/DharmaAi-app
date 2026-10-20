@@ -7,7 +7,7 @@ const app = createApp();
 const httpServer = createServer(app);
 createSocketServer(httpServer, env.SOCKET_CORS_ORIGIN || env.CORS_ORIGIN);
 
-httpServer.listen(env.PORT, () => {
-  console.log(`Dharma backend running on http://localhost:${env.PORT}`);
-  console.log(`Realtime websocket enabled on ws://localhost:${env.PORT}`);
+httpServer.listen(env.PORT, "0.0.0.0", () => {
+  console.log(`Dharma backend running on port ${env.PORT}`);
+  console.log(`Realtime websocket enabled on port ${env.PORT}`);
 });

@@ -14,11 +14,9 @@
             }
         },
         "production": {
+            "autoIncrement": true,
             "android": {
                 "buildType": "app-bundle"
-            },
-            "env": {
-                "EXPO_PUBLIC_STRESS_API_URL": "https://agentcrafter-dharmaai-stress-analyzer.hf.space"
             }
         }
     },
@@ -30,4 +28,4 @@
             }
         }
     }
-}
+}

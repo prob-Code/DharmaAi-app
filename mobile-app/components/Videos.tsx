@@ -1,126 +1,12 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, Image, Platform, TextInput, Modal, Dimensions, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, Image, Platform, TextInput, Modal, ActivityIndicator, useWindowDimensions } from 'react-native';
 import { Play, X, Search } from 'lucide-react-native';
 import YoutubePlayer from 'react-native-youtube-iframe';
 import { COLORS, YOUTUBE_API_KEY, YOUTUBE_SEARCH_URL } from '../constants';
+import { Config } from '../config';
 import { UserSettings } from '../src/types';
 import { getTranslation } from '../translations';
-
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
-
-// Fallback curated videos if API fails
-const FALLBACK_VIDEOS = [
-    {
-        id: '1',
-        title: 'Relaxing Flute Music for Meditation',
-        duration: '1:00:00',
-        thumbnail: 'https://img.youtube.com/vi/lTRiuFIWV54/hqdefault.jpg',
-        videoId: 'lTRiuFIWV54',
-        author: 'Soothing Relaxation',
-        category: 'Music',
-        mood: ['calm', 'focus', 'meditation'],
-        benefits: ['relaxation', 'concentration', 'inner peace']
-    },
-    {
-        id: '2',
-        title: 'Guided Meditation for Inner Peace',
-        duration: '20:00',
-        thumbnail: 'https://img.youtube.com/vi/z6X5oEIg6Ak/hqdefault.jpg',
-        videoId: 'z6X5oEIg6Ak',
-        author: 'Great Meditation',
-        category: 'Relief Talks',
-        mood: ['peaceful', 'spiritual', 'grounded'],
-        benefits: ['inner peace', 'spiritual growth', 'anxiety relief']
-    },
-    {
-        id: '3',
-        title: 'Om Meditation - Deep Relaxation',
-        duration: '30:00',
-        thumbnail: 'https://img.youtube.com/vi/ZToicYcHIOU/hqdefault.jpg',
-        videoId: 'ZToicYcHIOU',
-        author: 'Meditation Music',
-        category: 'Relief Talks',
-        mood: ['spiritual', 'meditative', 'deep'],
-        benefits: ['vibration healing', 'chakra balancing', 'spiritual connection']
-    },
-    {
-        id: '4',
-        title: 'Stress Relief Meditation Music',
-        duration: '25:00',
-        thumbnail: 'https://img.youtube.com/vi/SEfs5TJZ6Nk/hqdefault.jpg',
-        videoId: 'SEfs5TJZ6Nk',
-        author: 'Goodful',
-        category: 'Relief Talks',
-        mood: ['stressed', 'anxious', 'overwhelmed'],
-        benefits: ['stress relief', 'relaxation', 'tension release']
-    },
-    {
-        id: '5',
-        title: 'Morning Meditation for Positive Energy',
-        duration: '15:00',
-        thumbnail: 'https://img.youtube.com/vi/inpok4MKVLM/hqdefault.jpg',
-        videoId: 'inpok4MKVLM',
-        author: 'Great Meditation',
-        category: 'Relief Talks',
-        mood: ['energized', 'positive', 'motivated'],
-        benefits: ['energy boost', 'positivity', 'motivation', 'morning routine']
-    },
-    {
-        id: '6',
-        title: 'Deep Sleep Meditation Music',
-        duration: '3:00:00',
-        thumbnail: 'https://img.youtube.com/vi/aEklYoWSGUE/hqdefault.jpg',
-        videoId: 'aEklYoWSGUE',
-        author: 'Yellow Brick Cinema',
-        category: 'Music',
-        mood: ['sleepy', 'tired', 'restful'],
-        benefits: ['sleep', 'insomnia relief', 'deep rest', 'recovery']
-    },
-    {
-        id: '7',
-        title: 'Anxiety Relief Meditation',
-        duration: '20:00',
-        thumbnail: 'https://img.youtube.com/vi/O-6f5wQXSu8/hqdefault.jpg',
-        videoId: 'O-6f5wQXSu8',
-        author: 'The Mindful Movement',
-        category: 'Relief Talks',
-        mood: ['anxious', 'worried', 'nervous'],
-        benefits: ['anxiety relief', 'panic relief', 'calm', 'mindfulness']
-    },
-    {
-        id: '8',
-        title: 'Peaceful Piano Music for Meditation',
-        duration: '45:00',
-        thumbnail: 'https://img.youtube.com/vi/lTRiuFIWV54/hqdefault.jpg',
-        videoId: 'lTRiuFIWV54',
-        author: 'Soothing Relaxation',
-        category: 'Music',
-        mood: ['contemplative', 'peaceful', 'reflective'],
-        benefits: ['reflection', 'relaxation', 'focus']
-    },
-    {
-        id: '9',
-        title: 'Bhagavad Gita Recitation',
-        duration: '1:30:00',
-        thumbnail: 'https://img.youtube.com/vi/C6luJJWSJKk/hqdefault.jpg',
-        videoId: 'C6luJJWSJKk',
-        author: 'Spiritual India',
-        category: 'Gita Pravarchan',
-        mood: ['spiritual', 'learning', 'wisdom'],
-        benefits: ['spiritual wisdom', 'life guidance', 'dharma']
-    },
-    {
-        id: '10',
-        title: 'Healing Meditation Music',
-        duration: '30:00',
-        thumbnail: 'https://img.youtube.com/vi/1ZYbU82GVz4/hqdefault.jpg',
-        videoId: '1ZYbU82GVz4',
-        author: 'Meditation & Healing',
-        category: 'Relief Talks',
-        mood: ['healing', 'recovery', 'renewal'],
-        benefits: ['healing', 'recovery', 'emotional release', 'restoration']
-    }
-];
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 interface YouTubeVideo {
     id: string;
@@ -133,6 +19,59 @@ interface YouTubeVideo {
     mood?: string[];
     benefits?: string[];
 }
+
+// Client-side search helper — matches query against all video metadata
+const searchLocalVideos = (query: string, videos: YouTubeVideo[]): YouTubeVideo[] => {
+    const terms = query.toLowerCase().split(/\s+/).filter(t => t.length > 0);
+    if (terms.length === 0) return videos;
+
+    return videos.filter(video => {
+        const searchable = [
+            video.title,
+            video.author,
+            video.category,
+            ...(video.mood || []),
+            ...(video.benefits || [])
+        ].join(' ').toLowerCase();
+
+        return terms.every(term => searchable.includes(term));
+    });
+};
+
+// Curated video library — used for instant client-side search (no API needed)
+const CURATED_VIDEOS: YouTubeVideo[] = [
+    { id: '1', title: 'Relaxing Flute Music for Meditation', duration: '1:00:00', thumbnail: 'https://img.youtube.com/vi/lTRiuFIWV54/hqdefault.jpg', videoId: 'lTRiuFIWV54', author: 'Soothing Relaxation', category: 'Music', mood: ['calm', 'focus', 'meditation', 'flute'], benefits: ['relaxation', 'concentration', 'inner peace'] },
+    { id: '2', title: 'Guided Meditation for Inner Peace', duration: '20:00', thumbnail: 'https://img.youtube.com/vi/z6X5oEIg6Ak/hqdefault.jpg', videoId: 'z6X5oEIg6Ak', author: 'Great Meditation', category: 'Guided', mood: ['peaceful', 'spiritual', 'grounded', 'guided'], benefits: ['inner peace', 'spiritual growth', 'anxiety relief'] },
+    { id: '3', title: 'Om Meditation - Deep Relaxation', duration: '30:00', thumbnail: 'https://img.youtube.com/vi/ZToicYcHIOU/hqdefault.jpg', videoId: 'ZToicYcHIOU', author: 'Meditation Music', category: 'Mantra', mood: ['spiritual', 'meditative', 'deep', 'om', 'mantra'], benefits: ['vibration healing', 'chakra balancing', 'spiritual connection'] },
+    { id: '4', title: 'Stress Relief Meditation Music', duration: '25:00', thumbnail: 'https://img.youtube.com/vi/SEfs5TJZ6Nk/hqdefault.jpg', videoId: 'SEfs5TJZ6Nk', author: 'Goodful', category: 'Relief', mood: ['stressed', 'anxious', 'overwhelmed', 'stress'], benefits: ['stress relief', 'relaxation', 'tension release'] },
+    { id: '5', title: '5-Minute Meditation You Can Do Anywhere', duration: '5:36', thumbnail: 'https://img.youtube.com/vi/inpok4MKVLM/hqdefault.jpg', videoId: 'inpok4MKVLM', author: 'Goodful', category: 'Guided', mood: ['energized', 'positive', 'motivated', 'morning', 'quick'], benefits: ['energy boost', 'positivity', 'motivation', 'morning routine'] },
+    { id: '6', title: 'Deep Sleep Meditation Music - Relaxing Music', duration: '3:00:00', thumbnail: 'https://img.youtube.com/vi/aEklYoWSGUE/hqdefault.jpg', videoId: 'aEklYoWSGUE', author: 'Yellow Brick Cinema', category: 'Sleep', mood: ['sleepy', 'tired', 'restful', 'sleep', 'night', 'insomnia'], benefits: ['sleep', 'insomnia relief', 'deep rest', 'recovery'] },
+    { id: '7', title: 'Anxiety Relief - 10 Minute Guided Meditation', duration: '10:13', thumbnail: 'https://img.youtube.com/vi/O-6f5wQXSu8/hqdefault.jpg', videoId: 'O-6f5wQXSu8', author: 'The Mindful Movement', category: 'Relief', mood: ['anxious', 'worried', 'nervous', 'anxiety', 'panic'], benefits: ['anxiety relief', 'panic relief', 'calm', 'mindfulness'] },
+    { id: '9', title: 'Bhagavad Gita Recitation - Complete', duration: '1:30:00', thumbnail: 'https://img.youtube.com/vi/C6luJJWSJKk/hqdefault.jpg', videoId: 'C6luJJWSJKk', author: 'Spiritual India', category: 'Gita', mood: ['spiritual', 'learning', 'wisdom', 'gita', 'bhagavad', 'krishna'], benefits: ['spiritual wisdom', 'life guidance', 'dharma'] },
+    { id: '10', title: 'Healing Meditation Music - 432Hz', duration: '30:00', thumbnail: 'https://img.youtube.com/vi/1ZYbU82GVz4/hqdefault.jpg', videoId: '1ZYbU82GVz4', author: 'Meditation & Healing', category: 'Healing', mood: ['healing', 'recovery', 'renewal', '432hz'], benefits: ['healing', 'recovery', 'emotional release', 'restoration'] },
+    { id: '11', title: 'Yoga For Complete Beginners - 20 Minute Home Yoga', duration: '23:06', thumbnail: 'https://img.youtube.com/vi/v7AYKMP6rOE/hqdefault.jpg', videoId: 'v7AYKMP6rOE', author: 'Yoga With Adriene', category: 'Yoga', mood: ['yoga', 'beginner', 'fitness', 'morning', 'stretch'], benefits: ['flexibility', 'strength', 'body awareness'] },
+    { id: '12', title: 'Yoga for Stress Relief and Relaxation', duration: '28:00', thumbnail: 'https://img.youtube.com/vi/hJbRpHZr_d0/hqdefault.jpg', videoId: 'hJbRpHZr_d0', author: 'Yoga With Adriene', category: 'Yoga', mood: ['yoga', 'stress', 'relaxation', 'gentle'], benefits: ['stress relief', 'flexibility', 'calm'] },
+    { id: '13', title: 'Krishna Flute Music - Divine Meditation', duration: '1:00:00', thumbnail: 'https://img.youtube.com/vi/0wErKgYOGW0/hqdefault.jpg', videoId: '0wErKgYOGW0', author: 'Meditation & Healing', category: 'Bhajan', mood: ['krishna', 'flute', 'divine', 'devotion', 'bhajan', 'spiritual'], benefits: ['devotion', 'peace', 'spiritual connection'] },
+    { id: '14', title: 'Hare Krishna Maha Mantra - Beautiful Bhajan', duration: '45:00', thumbnail: 'https://img.youtube.com/vi/anPvEqaFVzA/hqdefault.jpg', videoId: 'anPvEqaFVzA', author: 'Madhavas Rock Band', category: 'Bhajan', mood: ['krishna', 'bhajan', 'mantra', 'hare', 'devotional', 'kirtan'], benefits: ['devotion', 'joy', 'spiritual uplift'] },
+    { id: '15', title: 'Chakra Healing Meditation - Balance All 7 Chakras', duration: '35:00', thumbnail: 'https://img.youtube.com/vi/VFNuG-gKJSc/hqdefault.jpg', videoId: 'VFNuG-gKJSc', author: 'PowerThoughts Meditation', category: 'Healing', mood: ['chakra', 'healing', 'energy', 'balance', 'kundalini'], benefits: ['chakra balancing', 'energy healing', 'spiritual growth'] },
+    { id: '16', title: 'Guided Sleep Meditation - Let Go of Anxiety', duration: '47:00', thumbnail: 'https://img.youtube.com/vi/aEqlQvczMJQ/hqdefault.jpg', videoId: 'aEqlQvczMJQ', author: 'Michael Sealey', category: 'Sleep', mood: ['sleep', 'anxiety', 'guided', 'night', 'insomnia', 'restful'], benefits: ['sleep', 'anxiety relief', 'relaxation'] },
+    { id: '17', title: 'Pranayama Breathing Exercises for Beginners', duration: '15:00', thumbnail: 'https://img.youtube.com/vi/Yz7Ofr9z1co/hqdefault.jpg', videoId: 'Yz7Ofr9z1co', author: 'Yoga With Adriene', category: 'Yoga', mood: ['pranayama', 'breathing', 'yoga', 'beginner', 'breath'], benefits: ['breath control', 'calm', 'lung capacity'] },
+    { id: '18', title: 'Gayatri Mantra 108 Times', duration: '54:00', thumbnail: 'https://img.youtube.com/vi/HszFeCNuc1I/hqdefault.jpg', videoId: 'HszFeCNuc1I', author: 'Sounds of Isha', category: 'Mantra', mood: ['gayatri', 'mantra', 'chanting', 'spiritual', 'vedic', 'prayer'], benefits: ['spiritual power', 'focus', 'purification'] },
+    { id: '19', title: 'Mindfulness Meditation - Being Present', duration: '10:00', thumbnail: 'https://img.youtube.com/vi/ZToicYcHIOU/hqdefault.jpg', videoId: 'ZToicYcHIOU', author: 'Headspace', category: 'Guided', mood: ['mindfulness', 'present', 'awareness', 'focus', 'calm'], benefits: ['mindfulness', 'presence', 'mental clarity'] },
+    { id: '20', title: 'Hanuman Chalisa - Full with Lyrics', duration: '10:00', thumbnail: 'https://img.youtube.com/vi/AETFvQonfV8/hqdefault.jpg', videoId: 'AETFvQonfV8', author: 'T-Series Bhakti Sagar', category: 'Bhajan', mood: ['hanuman', 'chalisa', 'bhajan', 'devotional', 'prayer', 'strength'], benefits: ['courage', 'devotion', 'protection'] },
+    { id: '21', title: 'Body Scan Meditation for Deep Relaxation', duration: '20:00', thumbnail: 'https://img.youtube.com/vi/O-6f5wQXSu8/hqdefault.jpg', videoId: 'O-6f5wQXSu8', author: 'The Mindful Movement', category: 'Guided', mood: ['body scan', 'relaxation', 'guided', 'deep', 'calm'], benefits: ['deep relaxation', 'body awareness', 'tension release'] },
+    { id: '22', title: 'Rain Sounds for Sleep and Relaxation', duration: '3:00:00', thumbnail: 'https://img.youtube.com/vi/mPZkdNFkNps/hqdefault.jpg', videoId: 'mPZkdNFkNps', author: 'Relaxing White Noise', category: 'Nature', mood: ['rain', 'sleep', 'nature', 'white noise', 'relax'], benefits: ['sleep', 'focus', 'relaxation'] },
+    { id: '23', title: 'Surya Namaskar - Sun Salutation Step by Step', duration: '12:00', thumbnail: 'https://img.youtube.com/vi/73sjOu0g58M/hqdefault.jpg', videoId: '73sjOu0g58M', author: 'Yoga With Adriene', category: 'Yoga', mood: ['yoga', 'surya namaskar', 'morning', 'sun', 'fitness', 'stretch'], benefits: ['full body workout', 'flexibility', 'energy'] },
+    { id: '24', title: 'Shiva Tandava Stotram - Powerful Mantra', duration: '8:00', thumbnail: 'https://img.youtube.com/vi/JCVxiU9MRGA/hqdefault.jpg', videoId: 'JCVxiU9MRGA', author: 'Uma Mohan', category: 'Mantra', mood: ['shiva', 'mantra', 'powerful', 'devotional', 'tandava'], benefits: ['inner strength', 'devotion', 'spiritual power'] },
+    { id: '25', title: 'Focus Music for Work and Studying', duration: '1:00:00', thumbnail: 'https://img.youtube.com/vi/1ZYbU82GVz4/hqdefault.jpg', videoId: '1ZYbU82GVz4', author: 'Greenred Productions', category: 'Music', mood: ['focus', 'study', 'work', 'concentration', 'productivity'], benefits: ['concentration', 'productivity', 'mental clarity'] },
+    { id: '26', title: 'Evening Meditation - Release the Day', duration: '18:00', thumbnail: 'https://img.youtube.com/vi/aEqlQvczMJQ/hqdefault.jpg', videoId: 'aEqlQvczMJQ', author: 'The Honest Guys', category: 'Guided', mood: ['evening', 'night', 'release', 'unwind', 'calm'], benefits: ['letting go', 'evening routine', 'peace'] },
+    { id: '27', title: 'Om Namah Shivaya Chanting - 1 Hour', duration: '1:00:00', thumbnail: 'https://img.youtube.com/vi/VFNuG-gKJSc/hqdefault.jpg', videoId: 'VFNuG-gKJSc', author: 'Meditative Mind', category: 'Mantra', mood: ['om', 'shiva', 'chanting', 'mantra', 'devotional'], benefits: ['purification', 'devotion', 'inner peace'] },
+    { id: '28', title: 'Yoga Nidra - Guided Deep Relaxation', duration: '25:00', thumbnail: 'https://img.youtube.com/vi/z6X5oEIg6Ak/hqdefault.jpg', videoId: 'z6X5oEIg6Ak', author: 'Yoga With Kassandra', category: 'Yoga', mood: ['yoga nidra', 'relaxation', 'deep', 'guided', 'sleep'], benefits: ['deep rest', 'rejuvenation', 'stress relief'] },
+    { id: '29', title: 'Depression Help - Guided Meditation', duration: '15:00', thumbnail: 'https://img.youtube.com/vi/O-6f5wQXSu8/hqdefault.jpg', videoId: 'O-6f5wQXSu8', author: 'The Mindful Movement', category: 'Relief', mood: ['depression', 'sad', 'low', 'hope', 'healing'], benefits: ['mood lift', 'hope', 'emotional healing'] },
+    { id: '30', title: 'Tibetan Singing Bowls - Meditation Music', duration: '1:00:00', thumbnail: 'https://img.youtube.com/vi/aEklYoWSGUE/hqdefault.jpg', videoId: 'aEklYoWSGUE', author: 'Nu Meditation Music', category: 'Music', mood: ['tibetan', 'singing bowl', 'healing', 'meditation', 'calm'], benefits: ['sound healing', 'deep meditation', 'relaxation'] },
+];
+
+// (YouTubeVideo interface moved above CURATED_VIDEOS)
 
 interface Props {
     settings: UserSettings;
@@ -167,18 +106,28 @@ const SEARCH_SUGGESTIONS = {
 };
 
 export const Videos: React.FC<Props> = ({ settings }) => {
+    const { width: SCREEN_WIDTH } = useWindowDimensions();
+    const insets = useSafeAreaInsets();
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedVideo, setSelectedVideo] = useState<string | null>(null);
     const [playing, setPlaying] = useState(false);
-    const [videos, setVideos] = useState<YouTubeVideo[]>(FALLBACK_VIDEOS);
+    const [videos, setVideos] = useState<YouTubeVideo[]>(CURATED_VIDEOS);
     const [loading, setLoading] = useState(false);
     const [hasSearched, setHasSearched] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    // YouTube Search API integration with improved error handling
+    // Calculate responsive thumbnail height based on screen width
+    // aiming for ~16:9 aspect ratio with some padding
+    const THUMBNAIL_HEIGHT = Math.round(SCREEN_WIDTH * 9 / 16);
+
+    // Calculate card margin based on screen width for better spacing
+    const CARD_MARGIN = Math.round(SCREEN_WIDTH * 0.04);
+
+    // YouTube Search API integration — prioritizes local curated videos first for offline support and speed
     const searchYouTube = useCallback(async (query: string) => {
+        console.log(`🔍 [Videos v2] searchYouTube called with query: "${query}"`);
         if (!query.trim()) {
-            setVideos(FALLBACK_VIDEOS);
+            setVideos(CURATED_VIDEOS);
             setHasSearched(false);
             setError(null);
             return;
@@ -189,88 +138,181 @@ export const Videos: React.FC<Props> = ({ settings }) => {
         setError(null);
 
         try {
+            // 1. Try local search first (instant, no API needed)
+            const localResults = searchLocalVideos(query, CURATED_VIDEOS);
+
+            // Keep the experience useful offline. If the curated library has
+            // matches, do not make the user wait for remote providers.
+            if (localResults.length > 0) {
+                setVideos(localResults);
+                setLoading(false);
+                return;
+            }
+
             // Add context to search for better spiritual/wellness results
             const enhancedQuery = query.includes('meditation') || query.includes('yoga') || query.includes('spiritual')
                 ? query
                 : `${query} meditation wellness`;
 
-            const params = new URLSearchParams({
-                part: 'snippet',
-                q: enhancedQuery,
-                key: YOUTUBE_API_KEY,
-                maxResults: '12',
-                type: 'video',
-                order: 'relevance',
-                relevanceLanguage: settings.language === 'hi' ? 'hi' : 'en'
-            });
-
-            const url = `${YOUTUBE_SEARCH_URL}?${params.toString()}`;
             console.log('📍 YouTube Search Query:', enhancedQuery);
-            console.log('🔗 API URL:', url.substring(0, url.lastIndexOf('key=')));
 
-            const response = await fetch(url, {
-                headers: {
-                    'Referer': 'http://localhost'
+            let data: any = null;
+            let ytVideos: YouTubeVideo[] = [];
+
+            // 2. Strategy 1: Try the backend proxy (more reliable on mobile, keeps API key server-side)
+            const backendUrl = Config.BACKEND_URL;
+            if (backendUrl) {
+                try {
+                    const proxyParams = new URLSearchParams({
+                        q: enhancedQuery,
+                        maxResults: '12',
+                        language: settings.language === 'hi' ? 'hi' : 'en'
+                    });
+                    const proxyUrl = `${backendUrl}/api/youtube/search?${proxyParams.toString()}`;
+                    console.log('🔗 Trying backend proxy:', proxyUrl);
+
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+                    const proxyResponse = await fetch(proxyUrl, {
+                        signal: controller.signal,
+                    });
+                    clearTimeout(timeoutId);
+
+                    if (proxyResponse.ok) {
+                        const proxyData = await proxyResponse.json();
+                        if (proxyData.videos && proxyData.videos.length > 0) {
+                            ytVideos = proxyData.videos.map((v: any) => ({
+                                id: v.id,
+                                title: v.title || 'Untitled',
+                                duration: '▶ Video',
+                                thumbnail: v.thumbnail || 'https://via.placeholder.com/320x180?text=No+Image',
+                                videoId: v.id,
+                                author: v.channelTitle || 'Unknown Channel',
+                                category: 'YOUTUBE',
+                                mood: [],
+                                benefits: []
+                            }));
+                        }
+                    } else {
+                        console.warn('⚠️ Backend proxy returned:', proxyResponse.status);
+                    }
+                } catch (proxyError) {
+                    console.warn('⚠️ Backend proxy unavailable, trying direct API:', proxyError);
+                }
+            }
+
+            // 3. Strategy 2: Fall back to direct YouTube API call if backend failed and we have no local results
+            if (ytVideos.length === 0 && YOUTUBE_API_KEY && YOUTUBE_API_KEY !== 'YOUR_YOUTUBE_API_KEY_HERE') {
+                try {
+                    const params = new URLSearchParams({
+                        part: 'snippet',
+                        q: enhancedQuery,
+                        key: YOUTUBE_API_KEY,
+                        maxResults: '12',
+                        type: 'video',
+                        order: 'relevance',
+                        relevanceLanguage: settings.language === 'hi' ? 'hi' : 'en'
+                    });
+
+                    const url = `${YOUTUBE_SEARCH_URL}?${params.toString()}`;
+                    console.log('🔗 Trying direct YouTube API');
+
+                    const response = await fetch(url);
+                    const apiData = await response.json();
+
+                    if (response.ok && apiData?.items?.length > 0) {
+                        ytVideos = apiData.items.map((item: any) => {
+                            const videoId = item.id?.videoId;
+                            if (!videoId) return null;
+
+                            return {
+                                id: videoId,
+                                title: item.snippet?.title || 'Untitled',
+                                duration: '▶ Video',
+                                thumbnail: item.snippet?.thumbnails?.high?.url ||
+                                          item.snippet?.thumbnails?.medium?.url ||
+                                          item.snippet?.thumbnails?.default?.url ||
+                                          'https://via.placeholder.com/320x180?text=No+Image',
+                                videoId: videoId,
+                                author: item.snippet?.channelTitle || 'Unknown Channel',
+                                category: 'YOUTUBE',
+                                mood: [],
+                                benefits: []
+                            };
+                        }).filter(Boolean) as YouTubeVideo[];
+                    } else if (!response.ok) {
+                        console.warn('⚠️ Direct API returned error:', apiData.error?.message || response.status);
+                    }
+                } catch (directError) {
+                    console.warn('⚠️ Direct API failed:', directError);
+                }
+            }
+
+            // 4. Strategy 3: Public Invidious API (No API key, No Local Backend needed!)
+            // This guarantees search works even if quota is exceeded AND windows firewall blocks backend
+            if (ytVideos.length === 0) {
+                try {
+                    console.log('🔗 Trying Invidious public proxy as ultimate fallback...');
+                    const invidiousUrl = `https://vid.puffyan.us/api/v1/search?q=${encodeURIComponent(enhancedQuery)}`;
+                    const response = await fetch(invidiousUrl);
+                    if (response.ok) {
+                        const invidiousData = await response.json();
+                        ytVideos = invidiousData.filter((v: any) => v.type === 'video').map((v: any) => ({
+                            id: v.videoId,
+                            title: v.title || 'Untitled',
+                            duration: '▶ Video',
+                            thumbnail: v.videoThumbnails?.find((t: any) => t.quality === 'high')?.url ||
+                                      v.videoThumbnails?.[0]?.url ||
+                                      `https://img.youtube.com/vi/${v.videoId}/hqdefault.jpg`,
+                            videoId: v.videoId,
+                            author: v.author || 'Unknown Channel',
+                            category: 'YOUTUBE',
+                            mood: [],
+                            benefits: []
+                        })).slice(0, 12);
+                        console.log(`✅ Found ${ytVideos.length} videos via Invidious proxy`);
+                    }
+                } catch (invidiousError) {
+                    console.warn('⚠️ Invidious fallback failed:', invidiousError);
+                }
+            }
+
+            // 4. Combine results (local first, then API)
+            const combinedResults = [...localResults];
+
+            // Add unique YouTube results
+            ytVideos.forEach(ytVid => {
+                if (!combinedResults.some(localVid => localVid.videoId === ytVid.videoId)) {
+                    combinedResults.push(ytVid);
                 }
             });
-            const data = await response.json();
-            
-            console.log('📦 API Response Status:', response.status);
-            console.log('📦 API Response Data:', JSON.stringify(data, null, 2));
-            
-            if (!response.ok) {
-                throw new Error(`API Error ${response.status}: ${data.error?.message || response.statusText}`);
-            }
 
-            if (data.error) {
-                const errorDetails = typeof data.error === 'object' 
-                    ? `${data.error.code}: ${data.error.message}` 
-                    : data.error;
-                throw new Error(`YouTube API Error - ${errorDetails}`);
-            }
-
-            if (data.items && data.items.length > 0) {
-                const ytVideos: YouTubeVideo[] = data.items.map((item: any) => {
-                    // Safely extract video data
-                    const videoId = item.id?.videoId;
-                    if (!videoId) return null;
-
-                    return {
-                        id: videoId,
-                        title: item.snippet?.title || 'Untitled',
-                        duration: '▶ Video',
-                        thumbnail: item.snippet?.thumbnails?.high?.url || 
-                                  item.snippet?.thumbnails?.medium?.url ||
-                                  item.snippet?.thumbnails?.default?.url ||
-                                  'https://via.placeholder.com/320x180?text=No+Image',
-                        videoId: videoId,
-                        author: item.snippet?.channelTitle || 'Unknown Channel',
-                        category: 'YOUTUBE',
-                        mood: [],
-                        benefits: []
-                    };
-                }).filter(Boolean) as YouTubeVideo[];
-
-                if (ytVideos.length > 0) {
-                    setVideos(ytVideos);
-                    console.log(`✅ Found ${ytVideos.length} videos`);
-                } else {
-                    const processErrorMsg = getTranslation(settings.language, 'errors.connection');
-                    setError(processErrorMsg);
-                    setVideos(FALLBACK_VIDEOS);
-                }
+            if (combinedResults.length > 0) {
+                setVideos(combinedResults);
+                console.log(`✅ Found ${combinedResults.length} videos total`);
             } else {
                 const noResultsMsg = getTranslation(settings.language, 'videos.noResults', { query: query });
                 setError(noResultsMsg);
-                setVideos(FALLBACK_VIDEOS);
+                setVideos(CURATED_VIDEOS);
             }
         } catch (error) {
             const errorMsg = error instanceof Error ? error.message : 'Unknown error';
             console.error('❌ YouTube Search Error:', errorMsg);
-            console.error('Full error:', error);
-            const searchErrorMsg = `${getTranslation(settings.language, 'errors.connection')}`;
-            setError(searchErrorMsg);
-            setVideos(FALLBACK_VIDEOS);
+
+            // Always fallback to local search if available, even on error
+            const localResults = searchLocalVideos(query, CURATED_VIDEOS);
+            if (localResults.length > 0) {
+                setVideos(localResults);
+            } else {
+                // Show the specific error if it's an API error, otherwise show generic connection error
+                if (errorMsg.includes('YouTube API Error') || errorMsg.includes('API Error')) {
+                    setError(`Error: ${errorMsg}`);
+                } else {
+                    setError(getTranslation(settings.language, 'errors.connection'));
+                }
+                setVideos(CURATED_VIDEOS);
+            }
         } finally {
             setLoading(false);
         }
@@ -317,7 +359,7 @@ export const Videos: React.FC<Props> = ({ settings }) => {
             if (searchQuery.length > 1) {
                 searchYouTube(searchQuery);
             } else if (searchQuery.length === 0) {
-                setVideos(FALLBACK_VIDEOS);
+                setVideos(CURATED_VIDEOS);
                 setHasSearched(false);
                 setError(null);
             }
@@ -364,7 +406,7 @@ export const Videos: React.FC<Props> = ({ settings }) => {
             onPress={() => handlePlayVideo(item.videoId)}
             activeOpacity={0.7}
         >
-            <View style={styles.thumbnailContainer}>
+            <View style={{ ...styles.thumbnailContainer, height: THUMBNAIL_HEIGHT }}>
                 <Image
                     source={{ uri: item.thumbnail }}
                     style={styles.thumbnail}
@@ -396,11 +438,11 @@ export const Videos: React.FC<Props> = ({ settings }) => {
                 data={displayVideos}
                 renderItem={renderItem}
                 keyExtractor={item => item.id}
-                contentContainerStyle={styles.listContent}
+                contentContainerStyle={{ ...styles.listContent, paddingBottom: SCREEN_WIDTH > 360 ? 100 : Math.round(SCREEN_WIDTH * 0.25) }}
                 showsVerticalScrollIndicator={false}
                 scrollEnabled={true}
                 ListHeaderComponent={
-                    <View style={styles.headerContent}>
+                    <View style={[styles.headerContent, { paddingTop: Math.max(insets.top + 12, 24) }]}>
                         <Text style={styles.title}>{getTranslation(settings.language, 'videos.title')}</Text>
                         <Text style={styles.subtitle}>{getTranslation(settings.language, 'videos.subtitle')}</Text>
 
@@ -491,7 +533,7 @@ export const Videos: React.FC<Props> = ({ settings }) => {
                 onRequestClose={handleClosePlayer}
             >
                 <View style={styles.modalContainer}>
-                    <View style={styles.modalContent}>
+                    <View style={[styles.modalContent, { width: Math.max(280, SCREEN_WIDTH - 20) }]}>
                         <View style={styles.modalHeader}>
                             <Text style={styles.modalTitle}>{getTranslation(settings.language, 'videos.nowPlaying')}</Text>
                             <TouchableOpacity
@@ -503,13 +545,22 @@ export const Videos: React.FC<Props> = ({ settings }) => {
                         </View>
 
                         {selectedVideo && (
-                            <YoutubePlayer
-                                height={220}
-                                width={SCREEN_WIDTH - 40}
-                                play={playing}
-                                videoId={selectedVideo}
-                                onChangeState={onStateChange}
-                            />
+                            <View style={{ width: Math.max(240, Math.min(SCREEN_WIDTH - 32, 640)), height: Math.min(300, Math.max(200, SCREEN_WIDTH * 0.5625)), borderRadius: 12, overflow: 'hidden', backgroundColor: '#000' }}>
+                                <YoutubePlayer
+                                    height={Math.min(300, Math.max(200, SCREEN_WIDTH * 0.5625))}
+                                    width={Math.max(240, Math.min(SCREEN_WIDTH - 32, 640))}
+                                    videoId={selectedVideo}
+                                    play={playing}
+                                    onChangeState={onStateChange}
+                                    onError={(playerError: string) => setError(`YouTube player error: ${playerError}`)}
+                                    forceAndroidAutoplay
+                                    initialPlayerParams={{
+                                        controls: true,
+                                        rel: false,
+                                        preventFullScreen: false,
+                                    }}
+                                />
+                            </View>
                         )}
 
                         <TouchableOpacity
@@ -673,7 +724,7 @@ const styles = StyleSheet.create({
         height: '100%',
     },
     playOverlay: {
-        ...StyleSheet.absoluteFillObject,
+        ...StyleSheet.absoluteFill,
         backgroundColor: 'rgba(0,0,0,0.3)',
         justifyContent: 'center',
         alignItems: 'center',
@@ -766,7 +817,6 @@ const styles = StyleSheet.create({
         backgroundColor: '#111625',
         borderRadius: 20,
         padding: 20,
-        width: SCREEN_WIDTH - 20,
         alignItems: 'center',
         borderWidth: 1,
         borderColor: 'rgba(255,255,255,0.1)',

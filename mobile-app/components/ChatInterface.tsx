@@ -1,29 +1,47 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator, Image, Animated } from 'react-native';
-import { Video } from 'expo-av';
-import * as Speech from 'expo-speech';
+import { View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator, Image, Animated, Modal } from 'react-native';
+import { createAudioPlayer, setAudioModeAsync } from 'expo-audio';
+import { useVideoPlayer, VideoView } from 'expo-video';
 import { BlurView } from 'expo-blur';
-import { Mic, Send, Music, Volume2, VolumeX, Settings, Brain } from 'lucide-react-native';
+import { Mic, Send, Music, Volume2, VolumeX, Settings, Brain, Bell } from 'lucide-react-native';
 import { Message, UserSettings } from '../src/types';
 import { getTranslation } from '../translations';
-import { getAIResponse, getGeminiTTS } from '../services/gemini';
+import { getAIResponse } from '../services/gemini';
 import { getSarvamTTS } from '../services/sarvam';
 import { getSoundAsset, COLORS, KRISHNA_IMAGE, KRISHNA_VIDEO_URL, testAllSounds } from '../constants';
 import { useTheme } from '../context/ThemeContext';
 import { analyzeStress, StressAnalysisResult } from '../services/stressAnalysis';
 import { StressReport } from './StressReport';
+import NotificationList from './social/Notifications/NotificationList';
+import { useNotifications } from '../context/NotificationsContext';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-// Import Audio only for native platforms to avoid web conflicts
-let Audio: any = null;
-if (Platform.OS !== 'web') {
-    try {
-        const expoAv = require('expo-av');
-        Audio = expoAv.Audio;
-    } catch (e) {
-        console.warn('Failed to load expo-av');
-    }
-}
+const Audio = {
+    setAudioModeAsync,
+    Sound: {
+        createAsync: async (source: any, options: any = {}, onStatus?: (status: any) => void) => {
+            const player = createAudioPlayer(source, { keepAudioSessionActive: true });
+            player.loop = Boolean(options.isLooping);
+            player.volume = options.volume ?? 1;
+            let subscription: { remove?: () => void } | undefined;
+            const sound = {
+                playAsync: async () => player.play(),
+                pauseAsync: async () => player.pause(),
+                setVolumeAsync: async (volume: number) => { player.volume = volume; },
+                unloadAsync: async () => {
+                    subscription?.remove?.();
+                    player.remove();
+                },
+            };
+            if (onStatus) {
+                subscription = (player as any).addListener?.('playbackStatusUpdate', onStatus);
+            }
+            if (options.shouldPlay) player.play();
+            return { sound };
+        },
+    },
+};
 
 interface Props {
     settings: UserSettings;
@@ -33,14 +51,33 @@ interface Props {
 
 export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onOpenSettings }) => {
     const { theme } = useTheme();
+    const insets = useSafeAreaInsets();
     const [messages, setMessages] = useState<Message[]>([]);
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [sound, setSound] = useState<any>(null);
     const [voiceSound, setVoiceSound] = useState<any>(null);
+    const [showNotifications, setShowNotifications] = useState(false);
+    const {
+        notifications,
+        unreadCount,
+        refresh: refreshNotifications,
+        markRead: markNotificationRead,
+        markAllAsRead,
+    } = useNotifications();
+    const krishnaVideoPlayer = useVideoPlayer(KRISHNA_VIDEO_URL, (player) => {
+        player.loop = true;
+        player.muted = true;
+    });
     const [isAmbientPlaying, setIsAmbientPlaying] = useState(true); // Auto-play background sound
     const [krishnaOpacity] = useState(new Animated.Value(0));
     const [isVoiceSpeaking, setIsVoiceSpeaking] = useState(false);
+
+    useEffect(() => {
+        const shouldPlay = settings.krishnaMode || isLoading || isVoiceSpeaking;
+        if (shouldPlay) krishnaVideoPlayer.play();
+        else krishnaVideoPlayer.pause();
+    }, [isLoading, isVoiceSpeaking, krishnaVideoPlayer, settings.krishnaMode]);
     const ambientVolumeRef = useRef(0);
     const scaleAnim = useRef(new Animated.Value(1)).current;
     
@@ -210,7 +247,7 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
         let fadeInterval: NodeJS.Timeout | null = null;
 
         const loadSoundWeb = async (url: string, soundName?: string) => {
-            // Use HTML5 Audio for web - avoid expo-av on web
+            // Use HTML5 Audio for web.
             if (!webAudioRef.current) {
                 try {
                     // Use HTMLAudioElement directly for web
@@ -304,7 +341,7 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
         };
 
         const loadSoundNative = async (soundAsset: any) => {
-            // Use expo-av only for native platforms
+            // Use Expo Audio on native platforms
             if (!Audio) {
                 console.error(`❌ [NATIVE] Audio API not available`);
                 return;
@@ -330,9 +367,8 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
                 if (Platform.OS !== 'web' && Audio) {
                     try {
                         await Audio.setAudioModeAsync({
-                            playsInSilentModeIOS: true,
-                            staysActiveInBackground: true,
-                            shouldDuckAndroid: true,
+                            playsInSilentMode: true,
+                            shouldPlayInBackground: true,
                         });
                     } catch (e) {
                         console.warn(`⚠️ [NATIVE] Failed to set audio mode:`, e);
@@ -449,7 +485,9 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
                 }
             } else {
                 if (!sound) {
-                    console.log("❌ Native sound not initialized");
+                    // The ambient player is loaded asynchronously. The effect
+                    // runs once before the sound exists and again after it is
+                    // ready; waiting here avoids a false error log.
                     return;
                 }
                 try {
@@ -563,7 +601,7 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
                     }
                     
                     try {
-                        const audio = new Audio();
+                        const audio = new globalThis.Audio();
                         audio.crossOrigin = 'anonymous';
                         
                         const result: any = {
@@ -664,48 +702,35 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
         }
     }, [settings.soundType]);
 
-    const playVoice = async (text: string, base64Audio?: string | null) => {
+    const playVoice = async (base64Audio?: string | null) => {
         if (voiceSound) {
             if (Platform.OS !== 'web' && Audio) {
                 await voiceSound.unloadAsync();
             }
             setVoiceSound(null);
         }
-        Speech.stop();
-
         if (!settings.voiceEnabled) return;
 
-        // Calming voice settings for mental wellness
-        const getVoiceSettings = () => {
-            // Speed mapping: very-slow for deep relaxation, slow for calm, normal for regular
-            const rateMap = {
-                'very-slow': 0.6,  // Deep meditation pace
-                'slow': 0.75,      // Calm, soothing pace
-                'normal': 0.85     // Slightly slower than default for comfort
-            };
-
-            // Pitch based on voice style - lower pitch is more calming
-            const pitchMap = {
-                'gentle': 0.95,    // Soft, nurturing tone
-                'deep': 0.8,       // Deep, grounding voice
-                'soft': 1.0        // Natural, warm tone
-            };
-
-            return {
-                language: settings.language === 'hi' ? 'hi-IN' : 'en-IN',
-                rate: rateMap[settings.voiceSpeed as keyof typeof rateMap] || 0.75,
-                pitch: pitchMap[settings.voiceStyle as keyof typeof pitchMap] || 0.95,
-                volume: settings.volume || 0.8,
-                onStart: () => setIsVoiceSpeaking(true),
-                onDone: () => setIsVoiceSpeaking(false),
-                onStopped: () => setIsVoiceSpeaking(false),
-                onError: () => setIsVoiceSpeaking(false),
-            };
-        };
-
-        if (base64Audio && Audio) {
+        if (base64Audio && Platform.OS === 'web' && typeof document !== 'undefined') {
             try {
-                const uri = `data:audio/mp3;base64,${base64Audio}`;
+                const audio = document.createElement('audio');
+                audio.src = `data:audio/wav;base64,${base64Audio}`;
+                audio.volume = Math.min(settings.volume || 0.8, AUDIO_CONFIG.voice.volume);
+                audio.preload = 'auto';
+                audio.onplay = () => setIsVoiceSpeaking(true);
+                audio.onended = () => setIsVoiceSpeaking(false);
+                audio.onerror = () => setIsVoiceSpeaking(false);
+                document.body.appendChild(audio);
+                await audio.play();
+                setVoiceSound({ unloadAsync: async () => { audio.pause(); audio.remove(); } });
+            } catch (e) {
+                console.error("Failed to play Sarvam audio in browser:", e);
+                setIsVoiceSpeaking(false);
+            }
+        } else if (base64Audio && Audio) {
+            try {
+                // Sarvam returns base64-encoded WAV audio.
+                const uri = `data:audio/wav;base64,${base64Audio}`;
                 const { sound: newVoice } = await Audio.Sound.createAsync(
                     { uri },
                     { shouldPlay: true, volume: Math.min(settings.volume || 0.8, AUDIO_CONFIG.voice.volume) },
@@ -717,13 +742,16 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
                     }
                 );
                 setVoiceSound(newVoice);
+                setIsVoiceSpeaking(true);
             } catch (e) {
-                console.log("Failed to play base64, using system TTS", e);
-                Speech.speak(text, getVoiceSettings());
+                console.error("Failed to play Sarvam audio:", e);
+                setIsVoiceSpeaking(false);
             }
         } else {
-            // Use enhanced calming voice settings
-            Speech.speak(text, getVoiceSettings());
+            // Sarvam is the only voice provider. If its backend request fails
+            // or returns no audio, stay silent.
+            console.warn('Sarvam returned no audio; voice playback skipped.');
+            setIsVoiceSpeaking(false);
         }
     };
 
@@ -758,16 +786,13 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
             setIsLoading(false);
 
             if (settings.voiceEnabled) {
-                // Try Sarvam AI first for best quality, then fallback to Gemini flash
-                let audioData = await getSarvamTTS(aiText, settings.language, {
+                const audioData = await getSarvamTTS(aiText, settings.language, {
                     voiceSpeed: settings.voiceSpeed,
+                    voiceStyle: settings.voiceStyle,
+                    krishnaMode: settings.krishnaMode,
                 });
-                
-                if (!audioData) {
-                    audioData = await getGeminiTTS(aiText, settings.voiceStyle, settings.language);
-                }
-                
-                playVoice(aiText, audioData);
+
+                playVoice(audioData);
             }
 
         } catch (error) {
@@ -840,17 +865,20 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
                                 <source src={KRISHNA_VIDEO_URL} type="video/mp4" />
                             </video>
                         ) : (
-                            // Mobile: Use video component
-                            <Video
-                                source={{ uri: KRISHNA_VIDEO_URL }}
-                                rate={1.0}
-                                volume={0}
-                                isMuted={true}
-                                isLooping={true}
-                                shouldPlay={settings.krishnaMode || isLoading || isVoiceSpeaking}
-                                style={{...styles.krishnaImage, position: 'absolute', width: '100%', height: '100%'} as any}
-                                resizeMode={"cover" as any}
-                            />
+                            // Mobile: local image always visible; the video plays over it once loaded
+                            <>
+                                <Image
+                                    source={KRISHNA_IMAGE}
+                                    resizeMode="cover"
+                                    style={{ position: 'absolute', width: '100%', height: '100%' }}
+                                />
+                                <VideoView
+                                    player={krishnaVideoPlayer}
+                                    nativeControls={false}
+                                    contentFit="cover"
+                                    style={{...styles.krishnaImage, position: 'absolute', width: '100%', height: '100%'} as any}
+                                />
+                            </>
                         )}
                         
                         {/* Overlay for better text contrast */}
@@ -863,11 +891,21 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
                 behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
                 style={styles.keyboardContainer}
             >
-                <View style={styles.header}>
-                    <Text style={[styles.headerTitle, dynamicStyles.accentColor]}>Dharma AI</Text>
+                <View style={[styles.header, { paddingTop: Math.max(insets.top, 12) }]}>
+                    <Text style={[styles.headerTitle, dynamicStyles.accentColor]}>Saarthi</Text>
                     <View style={{ flexDirection: 'row', gap: 10 }}>
                         <TouchableOpacity onPress={handleGenerateReport} style={styles.iconButton}>
                             <Brain color={theme.colors.accent} size={24} />
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={() => setShowNotifications(true)} style={styles.iconButton}>
+                            <Bell color={theme.colors.accent} size={24} />
+                            {unreadCount > 0 && (
+                                <View style={styles.notificationBadge}>
+                                    <Text style={styles.notificationBadgeText}>
+                                        {unreadCount > 9 ? '9+' : unreadCount}
+                                    </Text>
+                                </View>
+                            )}
                         </TouchableOpacity>
                         <TouchableOpacity onPress={toggleAmbient} style={styles.iconButton}>
                             {isAmbientPlaying ? <Volume2 color={theme.colors.accent} size={24} /> : <VolumeX color={theme.colors.muted} size={24} />}
@@ -892,7 +930,7 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
                     </View>
                 )}
 
-                <View style={styles.inputWrapper}>
+                <View style={[styles.inputWrapper, { bottom: Math.max(insets.bottom + 8, 16) }]}>
                     <BlurView intensity={30} tint={theme.isDark ? "dark" : "light"} style={[styles.inputContainer, dynamicStyles.inputBg, dynamicStyles.inputBorder]}>
                         <TextInput
                             style={[styles.input, dynamicStyles.textColor]}
@@ -922,6 +960,18 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
                 isLoading={isReportLoading}
                 error={reportError}
             />
+
+            <Modal visible={showNotifications} animationType="slide">
+                <NotificationList
+                    notifications={notifications}
+                    onNotificationPress={(notification) => {
+                        void markNotificationRead(notification.id);
+                    }}
+                    onRefresh={refreshNotifications}
+                    onMarkAllRead={markAllAsRead}
+                    onBack={() => setShowNotifications(false)}
+                />
+            </Modal>
         </View>
     );
 };
@@ -938,7 +988,7 @@ const styles = StyleSheet.create({
         justifyContent: 'space-between',
         alignItems: 'center',
         paddingHorizontal: 20,
-        paddingTop: 50,
+        paddingTop: 12,
         paddingBottom: 20,
         zIndex: 10,
     },
@@ -948,6 +998,24 @@ const styles = StyleSheet.create({
     },
     iconButton: {
         padding: 8,
+        position: 'relative',
+    },
+    notificationBadge: {
+        position: 'absolute',
+        top: 0,
+        right: 0,
+        minWidth: 16,
+        height: 16,
+        paddingHorizontal: 3,
+        borderRadius: 8,
+        backgroundColor: '#E85D75',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    notificationBadgeText: {
+        color: '#fff',
+        fontSize: 9,
+        fontWeight: '800',
     },
     list: {
         flex: 1,
@@ -995,7 +1063,7 @@ const styles = StyleSheet.create({
     },
     inputWrapper: {
         position: 'absolute',
-        bottom: 20,
+        bottom: 16,
         left: 20,
         right: 20,
         borderRadius: 35,

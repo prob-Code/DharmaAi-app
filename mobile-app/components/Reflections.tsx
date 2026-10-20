@@ -44,6 +44,7 @@ import { realtimeSocket } from '../services/realtimeSocket';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { useNotifications } from '../context/NotificationsContext';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const WISDOM_QUOTES = [
   'The soul knows the way, the mind just follows.',
@@ -73,10 +74,21 @@ const getMoodStyle = (label?: string) => {
   return { color: mood.color, backgroundColor: mood.bgColor };
 };
 
+const displayInitial = (value?: string) => (value?.trim()?.[0] || 'A').toUpperCase();
+
+const toTimestamp = (value: unknown) => {
+  const timestamp = value instanceof Date ? value.getTime() : new Date(String(value ?? '')).getTime();
+  return Number.isFinite(timestamp) ? timestamp : Date.now();
+};
+
 export const Reflections: React.FC<Props> = ({ settings }) => {
   const { theme } = useTheme();
+  const insets = useSafeAreaInsets();
   const [posts, setPosts] = useState<ReflectionPost[]>([]);
   const [refreshing, setRefreshing] = useState(false);
+  const [posting, setPosting] = useState(false);
+  const [feedError, setFeedError] = useState<string | null>(null);
+  const [deletingPostId, setDeletingPostId] = useState<string | null>(null);
 
   const { user } = useAuth();
   const currentUserId = user?.id;
@@ -104,6 +116,7 @@ export const Reflections: React.FC<Props> = ({ settings }) => {
     notifications,
     unreadCount,
     refresh: refreshNotifications,
+    markRead: markNotificationRead,
     markAllAsRead,
   } = useNotifications();
 
@@ -130,16 +143,33 @@ export const Reflections: React.FC<Props> = ({ settings }) => {
 
   const loadPosts = async () => {
     try {
-      const data = await postsService.getFeed(50);
-      const transformed: ReflectionPost[] = data.map((post: any) => ({
+      setFeedError(null);
+      // Fragments are publicly readable. Only creating, liking, and replying
+      // require a real Firebase user.
+      const data = await postsService.getExplore(50);
+      const transformed: ReflectionPost[] = await Promise.all(data.map(async (post: any) => {
+        const comments = await commentsService.getByPost(post.id).catch(() => []);
+        const replies: ReflectionReply[] = comments.map((comment: any) => ({
+          id: comment.id,
+          author: comment.user?.display_name || comment.user?.username || 'Anonymous Soul',
+          user_id: comment.user_id,
+          content: comment.content,
+          timestamp: toTimestamp(comment.created_at),
+          user: {
+            username: comment.user?.username,
+            display_name: comment.user?.display_name,
+          },
+        }));
+
+        return {
         id: post.id,
         author:
           post.user?.display_name || post.user?.username || 'Anonymous Soul',
         user_id: post.user_id,
-        content: post.content,
+        content: String(post.content || '').trim(),
         moodTag: post.mood_tag,
-        timestamp: new Date(post.created_at).getTime(),
-        replies: [],
+        timestamp: toTimestamp(post.created_at),
+        replies: replies || [],
         likes: (post.likes_count as number | undefined) ?? 0,
         isLiked: post.isLiked,
         user: {
@@ -147,11 +177,13 @@ export const Reflections: React.FC<Props> = ({ settings }) => {
           display_name: post.user?.display_name,
           avatar_url: post.user?.avatar_url,
         },
+        };
       }));
 
       setPosts(transformed);
     } catch (error) {
       console.error('Error loading posts', error);
+      setFeedError('Unable to load fragments right now. Check your connection and try again.');
     } finally {
       setRefreshing(false);
     }
@@ -263,10 +295,36 @@ export const Reflections: React.FC<Props> = ({ settings }) => {
   };
 
   const handlePost = async () => {
-    if (!newContent.trim()) return;
+    const contentToPost = newContent.trim();
+    const moodToPost = selectedMood.label;
+
+    if (!contentToPost || posting) return;
+    if (!currentUserId) {
+      Alert.alert('Sign in required', 'Please sign in before posting a reflection.');
+      return;
+    }
+
+    const pendingId = `pending-${Date.now()}`;
+    const optimisticPost: ReflectionPost = {
+      id: pendingId,
+      author: settings.name || user?.user_metadata?.display_name || 'Me',
+      user_id: currentUserId,
+      content: contentToPost,
+      moodTag: moodToPost,
+      timestamp: Date.now(),
+      replies: [],
+      likes: 0,
+      isLiked: false,
+    };
+
+    setPosting(true);
+    setPosts(prev => [optimisticPost, ...prev]);
+    setNewContent('');
+    setSelectedMood(MOOD_TAGS[0]);
+    setShowCompose(false);
 
     try {
-      const data = await postsService.create(newContent, selectedMood.label);
+      const data = await postsService.create(contentToPost, moodToPost);
 
       const newPost: ReflectionPost = {
         id: data.id,
@@ -284,11 +342,8 @@ export const Reflections: React.FC<Props> = ({ settings }) => {
         },
       };
 
-      setPosts(prev => [newPost, ...prev]);
+      setPosts(prev => prev.map(post => post.id === pendingId ? newPost : post));
       realtimeSocket.emitReflectionPost(newPost);
-      setNewContent('');
-      setSelectedMood(MOOD_TAGS[0]);
-      setShowCompose(false);
       
       try {
         await scheduleLocalPostNotification("Your fragment has been added to the collective wisdom.");
@@ -296,16 +351,26 @@ export const Reflections: React.FC<Props> = ({ settings }) => {
         console.log("Failed to notify", e);
       }
     } catch (error: any) {
+      setPosts(prev => prev.filter(post => post.id !== pendingId));
+      setNewContent(contentToPost);
+      setSelectedMood(MOOD_TAGS.find(mood => mood.label === moodToPost) || MOOD_TAGS[0]);
+      setShowCompose(true);
       Alert.alert('Error', error.message || 'Failed to post reflection');
+    } finally {
+      setPosting(false);
     }
   };
 
   const handleReply = async () => {
     if (!replyContent.trim() || !activeThread) return;
+    if (!currentUserId) {
+      Alert.alert('Sign in required', 'Please sign in before replying to a fragment.');
+      return;
+    }
     setReplying(true);
 
     try {
-      const data = await commentsService.create(activeThread.id, replyContent);
+      const data = await commentsService.create(activeThread.id, replyContent.trim());
 
       const newReply: ReflectionReply = {
         id: data.id,
@@ -357,11 +422,14 @@ export const Reflections: React.FC<Props> = ({ settings }) => {
           style: 'destructive',
           onPress: async () => {
             try {
+              setDeletingPostId(postId);
               await postsService.delete(postId);
               setPosts(prev => prev.filter(p => p.id !== postId));
               if (activeThread?.id === postId) setActiveThread(null);
             } catch (error: any) {
-              Alert.alert('Error', 'Could not delete post');
+              Alert.alert('Error', error?.message || 'Could not delete post');
+            } finally {
+              setDeletingPostId(null);
             }
           },
         },
@@ -370,6 +438,10 @@ export const Reflections: React.FC<Props> = ({ settings }) => {
   };
 
   const handleLike = async (postId: string) => {
+    if (!currentUserId) {
+      Alert.alert('Sign in required', 'Please sign in before reacting to a fragment.');
+      return;
+    }
     try {
       const liked = await likesService.toggle(postId);
 
@@ -418,9 +490,18 @@ export const Reflections: React.FC<Props> = ({ settings }) => {
           );
         }
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error toggling like:', error);
+      Alert.alert('Could not update reaction', error?.message || 'Please try again.');
     }
+  };
+
+  const handleJoinCircle = () => {
+    if (!currentUserId) {
+      Alert.alert('Sign in required', 'Please sign in before joining the circle.');
+      return;
+    }
+    setShowVideoRoom(true);
   };
 
   const formatTimeAgo = (timestamp: number) => {
@@ -437,7 +518,7 @@ export const Reflections: React.FC<Props> = ({ settings }) => {
   const renderItem = ({ item }: { item: ReflectionPost }) => {
     const isLiked = item.isLiked;
     const moodStyle = getMoodStyle(item.moodTag || 'Peaceful');
-    const isOwnPost = item.user_id === currentUserId;
+    const isOwnPost = !!(item.user_id && currentUserId && item.user_id === currentUserId);
 
     return (
       <Animated.View
@@ -457,7 +538,7 @@ export const Reflections: React.FC<Props> = ({ settings }) => {
             <View style={styles.authorContainer}>
               <View style={[styles.avatar, { borderColor: moodStyle.color }]}>
                 <Text style={[styles.avatarText, { color: moodStyle.color }]}>
-                  {item.author[0].toUpperCase()}
+                  {displayInitial(item.author)}
                 </Text>
               </View>
               <View style={styles.authorInfo}>
@@ -548,14 +629,14 @@ export const Reflections: React.FC<Props> = ({ settings }) => {
   // Thread View
   if (activeThread) {
     const moodStyle = getMoodStyle(activeThread.moodTag || 'Peaceful');
-    const isOwnPost = activeThread.user_id === currentUserId;
+    const isOwnPost = !!(activeThread.user_id && currentUserId && activeThread.user_id === currentUserId);
 
     return (
       <KeyboardAvoidingView
         style={[styles.container, dynamicStyles.containerBg]}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
-        <View style={[styles.threadHeader, dynamicStyles.borderColor]}>
+        <View style={[styles.threadHeader, dynamicStyles.borderColor, { paddingTop: Math.max(insets.top + 8, 12) }]}>
           <TouchableOpacity
             onPress={() => setActiveThread(null)}
             style={[styles.backButton, { backgroundColor: dynamicStyles.accentTransparent }]}
@@ -628,7 +709,7 @@ export const Reflections: React.FC<Props> = ({ settings }) => {
                     onPress={() => handleDeletePost(activeThread.id)}
                     style={{ marginLeft: 'auto' }}
                   >
-                    <Trash2 size={18} color={theme.colors.danger} />
+            <Trash2 size={18} color={deletingPostId === activeThread.id ? theme.colors.muted : theme.colors.danger} />
                   </TouchableOpacity>
                 )}
               </View>
@@ -715,7 +796,7 @@ export const Reflections: React.FC<Props> = ({ settings }) => {
                     <View style={styles.replyHeader}>
                       <View style={[styles.replyAvatarSmall, { backgroundColor: dynamicStyles.accentTransparent }]}>
                         <Text style={[styles.replyAvatarText, dynamicStyles.accentColor]}>
-                          {reply.author[0].toUpperCase()}
+                          {displayInitial(reply.author)}
                         </Text>
                       </View>
                       <Text style={[styles.replyAuthor, dynamicStyles.textColor]}>{reply.author}</Text>
@@ -788,6 +869,7 @@ export const Reflections: React.FC<Props> = ({ settings }) => {
         <NotificationList
           notifications={notifications}
           onNotificationPress={(notification) => {
+            void markNotificationRead(notification.id);
             if (notification.type === 'video_call' && notification.data?.roomName) {
               setNotifVideoRoomName(notification.data.roomName as string);
               setNotifVideoCallerName((notification.data.callerName as string) || 'Friend');
@@ -804,16 +886,18 @@ export const Reflections: React.FC<Props> = ({ settings }) => {
 
   // Main Feed View
   return (
-    <View style={[styles.container, dynamicStyles.containerBg]}>
-      <VideoRoom
-        visible={showVideoRoom}
-        roomName="dharma-community-circle-unique-99"
-        onClose={() => setShowVideoRoom(false)}
-        userInfo={{
-          displayName: settings.name || 'Friend',
-          avatar: user?.user_metadata?.avatar_url,
-        }}
-      />
+    <View style={[styles.container, dynamicStyles.containerBg, { paddingTop: Math.max(insets.top, 12) }]}>
+      {showVideoRoom ? (
+        <VideoRoom
+          visible={showVideoRoom}
+          roomName="dharma-community-circle-unique-99"
+          onClose={() => setShowVideoRoom(false)}
+          userInfo={{
+            displayName: settings.name || 'Friend',
+            avatar: user?.user_metadata?.avatar_url,
+          }}
+        />
+      ) : null}
 
       <Animated.View
         style={[
@@ -870,7 +954,7 @@ export const Reflections: React.FC<Props> = ({ settings }) => {
 
           <TouchableOpacity
             style={[styles.composeBtn, styles.quickActionBtn, { backgroundColor: '#60a5fa', borderColor: '#60a5fa' }]}
-            onPress={() => setShowVideoRoom(true)}
+            onPress={handleJoinCircle}
             activeOpacity={0.8}
           >
             <Video size={20} color={theme.isDark ? '#FFF' : '#000'} />
@@ -939,6 +1023,20 @@ export const Reflections: React.FC<Props> = ({ settings }) => {
             <Text style={[styles.footerSignature, dynamicStyles.accentColor]}>— DharmaAI</Text>
           </View>
         )}
+        ListEmptyComponent={() => (
+          <View style={styles.emptyState}>
+            <Feather size={34} color={theme.colors.accent} />
+            <Text style={[styles.emptyStateTitle, dynamicStyles.textColor]}>
+              {feedError ? 'Fragments are temporarily unavailable' : 'No fragments yet'}
+            </Text>
+            <Text style={[styles.emptyStateText, dynamicStyles.mutedColor]}>
+              {feedError || 'Be the first to leave a small piece of wisdom for the community.'}
+            </Text>
+            <TouchableOpacity onPress={handleRefresh} style={[styles.retryButton, dynamicStyles.accentBg]}>
+              <Text style={styles.retryButtonText}>Try again</Text>
+            </TouchableOpacity>
+          </View>
+        )}
       />
 
       <Modal visible={showCompose} animationType="slide" transparent>
@@ -946,7 +1044,7 @@ export const Reflections: React.FC<Props> = ({ settings }) => {
           style={{ flex: 1 }}
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         >
-          <BlurView intensity={95} tint={theme.isDark ? "dark" : "light"} style={[styles.modalContainer, dynamicStyles.containerBg]}>
+          <BlurView intensity={95} tint={theme.isDark ? "dark" : "light"} style={[styles.modalContainer, dynamicStyles.containerBg, { paddingTop: Math.max(insets.top + 12, 24) }]}>
             <View style={styles.modalHeader}>
               <View style={styles.modalTitleRow}>
                 <Feather size={24} color={theme.colors.accent} />
@@ -1076,7 +1174,7 @@ export const Reflections: React.FC<Props> = ({ settings }) => {
               </View>
             </ScrollView>
 
-            <View style={styles.modalFooter}>
+            <View style={[styles.modalFooter, { paddingBottom: Math.max(insets.bottom, 12) }]}>
               <TouchableOpacity
                 style={[
                   styles.postButton,
@@ -1084,14 +1182,14 @@ export const Reflections: React.FC<Props> = ({ settings }) => {
                   !newContent.trim() && styles.postButtonDisabled,
                 ]}
                 onPress={handlePost}
-                disabled={!newContent.trim()}
+                  disabled={!newContent.trim() || posting}
                 activeOpacity={0.8}
               >
-                <Send
+                  <Send
                   size={18}
                   color={newContent.trim() ? (theme.isDark ? '#000' : '#FFF') : theme.colors.muted}
                 />
-                <Text
+                  <Text
                   style={[
                     styles.postButtonText,
                     !newContent.trim() && styles.postButtonTextDisabled,
@@ -1203,6 +1301,33 @@ const styles = StyleSheet.create({
   listContent: {
     padding: 20,
     paddingBottom: 100,
+  },
+  emptyState: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+    paddingVertical: 64,
+    gap: 10,
+  },
+  emptyStateTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  emptyStateText: {
+    fontSize: 14,
+    lineHeight: 21,
+    textAlign: 'center',
+  },
+  retryButton: {
+    marginTop: 8,
+    borderRadius: 18,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+  },
+  retryButtonText: {
+    color: '#000',
+    fontWeight: '700',
   },
   card: {
     borderRadius: 24,

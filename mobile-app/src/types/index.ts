@@ -18,8 +18,8 @@ export interface ReflectionPost {
     replies: ReflectionReply[];
     likes: number; // Maps to likes_count
     user?: { // Populated from profiles
-        username: string;
-        display_name: string;
+        username?: string;
+        display_name?: string;
         avatar_url?: string;
     };
     isLiked?: boolean; // Client-side state
@@ -32,8 +32,8 @@ export interface ReflectionReply {
     content: string;
     timestamp: number;
     user?: {
-        username: string;
-        display_name: string;
+        username?: string;
+        display_name?: string;
         avatar_url?: string;
     };
 }

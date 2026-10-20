@@ -1,18 +1,5 @@
-import { Platform } from 'react-native';
-
-// Conditionally import socket.io-client - only resolve for RN/native platforms
-let io: any = null;
-let Socket: any = null;
-
-if (Platform.OS !== 'web') {
-  try {
-    const socketio = require('socket.io-client');
-    io = socketio.io;
-    Socket = socketio.Socket;
-  } catch (e) {
-    console.warn('[Realtime] socket.io-client not available:', e);
-  }
-}
+import { io, Socket } from 'socket.io-client';
+import { Config } from '../config';
 
 export interface DMRealtimeMessage {
   id: string;
@@ -42,7 +29,7 @@ export interface ReflectionPostRealtimePayload {
   moodTag?: string;
   timestamp: number;
   likes: number;
-  isLiked: boolean;
+  isLiked?: boolean;
   user?: {
     username?: string;
     display_name?: string;
@@ -72,54 +59,41 @@ export interface ReflectionLikeRealtimePayload {
   userId: string;
 }
 
-const DEFAULT_BACKEND_URL =
-  Platform.OS === 'android' ? 'http://10.0.2.2:4000' : 'http://localhost:4000';
-
 class RealtimeSocketService {
-  private socket: any = null;
+  private socket: Socket | null = null;
   private currentUserId: string | null = null;
+  private isConnected = false;
 
-  connect(userId: string, backendUrl: string = DEFAULT_BACKEND_URL) {
-    if (!io) {
-      console.warn('[Realtime] socket.io-client not available, skipping WebSocket connection');
-      return null;
-    }
+  private dmHandlers: ((payload: DMRealtimeMessage) => void)[] = [];
+  private notifHandlers: ((payload: RealtimeNotification) => void)[] = [];
+  private postHandlers: ((payload: ReflectionPostRealtimePayload) => void)[] = [];
+  private commentHandlers: ((payload: ReflectionReplyRealtimePayload) => void)[] = [];
+  private likeHandlers: ((payload: ReflectionLikeRealtimePayload) => void)[] = [];
 
-    if (this.socket?.connected && this.currentUserId === userId) {
+  connect(userId: string) {
+    if (this.socket && this.currentUserId === userId) {
       return this.socket;
     }
 
     this.disconnect();
-
-    this.socket = io(backendUrl, {
-      transports: ['websocket', 'polling'],
-      reconnection: true,
-      reconnectionAttempts: 3,       // Don't retry forever on unreachable hosts
-      reconnectionDelay: 2000,
-      reconnectionDelayMax: 10000,
-      timeout: 8000,
-    });
-
     this.currentUserId = userId;
-    let hasLoggedError = false;
 
+    if (!Config.BACKEND_URL) {
+      console.warn('[Realtime] EXPO_PUBLIC_BACKEND_URL is not configured');
+      return null;
+    }
+
+    this.socket = io(Config.BACKEND_URL, { transports: ['websocket'] });
     this.socket.on('connect', () => {
       this.socket?.emit('user:join', userId);
-      console.log('[Realtime] Connected and joined user room:', userId);
-      hasLoggedError = false;
+      this.isConnected = true;
     });
-
-    this.socket.on('disconnect', () => {
-      console.log('[Realtime] Disconnected');
-    });
-
-    this.socket.on('connect_error', (err: any) => {
-      // Only log the first error to avoid flooding the JS thread
-      if (!hasLoggedError) {
-        console.warn('[Realtime] Socket.io connection error (will retry silently):', err.message);
-        hasLoggedError = true;
-      }
-    });
+    this.socket.on('disconnect', () => { this.isConnected = false; });
+    this.socket.on('dm:new', (payload: DMRealtimeMessage) => this.dmHandlers.forEach(h => h(payload)));
+    this.socket.on('notification:new', (payload: RealtimeNotification) => this.notifHandlers.forEach(h => h(payload)));
+    this.socket.on('reflection:post:new', (payload: ReflectionPostRealtimePayload) => this.postHandlers.forEach(h => h(payload)));
+    this.socket.on('reflection:comment:new', (payload: ReflectionReplyRealtimePayload) => this.commentHandlers.forEach(h => h(payload)));
+    this.socket.on('reflection:like:updated', (payload: ReflectionLikeRealtimePayload) => this.likeHandlers.forEach(h => h(payload)));
 
     return this.socket;
   }
@@ -129,17 +103,22 @@ class RealtimeSocketService {
       this.socket.disconnect();
       this.socket = null;
     }
+    this.isConnected = false;
     this.currentUserId = null;
   }
 
   onDM(handler: (payload: DMRealtimeMessage) => void) {
-    this.socket?.on('dm:new', handler);
-    return () => this.socket?.off('dm:new', handler);
+    this.dmHandlers.push(handler);
+    return () => {
+      this.dmHandlers = this.dmHandlers.filter(h => h !== handler);
+    };
   }
 
   onNotification(handler: (payload: RealtimeNotification) => void) {
-    this.socket?.on('notification:new', handler);
-    return () => this.socket?.off('notification:new', handler);
+    this.notifHandlers.push(handler);
+    return () => {
+      this.notifHandlers = this.notifHandlers.filter(h => h !== handler);
+    };
   }
 
   emitDM(payload: DMRealtimeMessage) {
@@ -151,18 +130,24 @@ class RealtimeSocketService {
   }
 
   onReflectionPost(handler: (payload: ReflectionPostRealtimePayload) => void) {
-    this.socket?.on('reflection:post:new', handler);
-    return () => this.socket?.off('reflection:post:new', handler);
+    this.postHandlers.push(handler);
+    return () => {
+      this.postHandlers = this.postHandlers.filter(h => h !== handler);
+    };
   }
 
   onReflectionComment(handler: (payload: ReflectionReplyRealtimePayload) => void) {
-    this.socket?.on('reflection:comment:new', handler);
-    return () => this.socket?.off('reflection:comment:new', handler);
+    this.commentHandlers.push(handler);
+    return () => {
+      this.commentHandlers = this.commentHandlers.filter(h => h !== handler);
+    };
   }
 
   onReflectionLike(handler: (payload: ReflectionLikeRealtimePayload) => void) {
-    this.socket?.on('reflection:like:updated', handler);
-    return () => this.socket?.off('reflection:like:updated', handler);
+    this.likeHandlers.push(handler);
+    return () => {
+      this.likeHandlers = this.likeHandlers.filter(h => h !== handler);
+    };
   }
 
   emitReflectionPost(payload: ReflectionPostRealtimePayload) {
@@ -179,4 +164,4 @@ class RealtimeSocketService {
 }
 
 export const realtimeSocket = new RealtimeSocketService();
-export const realtimeConfig = { DEFAULT_BACKEND_URL };
+export const realtimeConfig = { DEFAULT_BACKEND_URL: Config.BACKEND_URL };

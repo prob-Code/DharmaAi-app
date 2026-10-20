@@ -1,12 +1,12 @@
 import { create } from 'zustand';
 import { UserSettings } from '../types/index';
-import { User } from '@supabase/supabase-js';
+import type { CompatUser } from '../../services/supabase';
 
 interface AppState {
   // Auth state
-  user: User | null;
   session: any | null;
-  setUser: (user: User | null) => void;
+  user: CompatUser | null;
+  setUser: (user: CompatUser | null) => void;
   setSession: (session: any | null) => void;
 
   // Settings state
@@ -24,7 +24,7 @@ const DEFAULT_SETTINGS: UserSettings = {
   soundType: 'silence',
   voiceEnabled: true,
   voiceSpeed: 'normal',
-  voiceStyle: 'gentle',
+  voiceStyle: 'soft',
   krishnaMode: true,
   name: '',
   volume: 1.0,

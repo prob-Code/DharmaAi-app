@@ -6,7 +6,8 @@ Production-ready TypeScript Express backend for the mobile app.
 
 - Health endpoint
 - YouTube search proxy endpoint
-- AI chat proxy endpoint (OpenRouter)
+- AI chat proxy endpoint (Groq)
+- Stress analysis and Sarvam TTS proxy endpoints
 - Socket.IO realtime server for live events
 - Input validation with Zod
 - Security middleware (Helmet, CORS, rate-limiting)
@@ -20,24 +21,26 @@ Production-ready TypeScript Express backend for the mobile app.
 cp .env.example .env
 ```
 
-2. Fill in environment values in `.env`:
+1. Fill in environment values in `.env`:
 
 - `YOUTUBE_API_KEY`
-- `OPENROUTER_API_KEY` (optional if AI route not used)
+- `GROQ_API_KEY` (optional if AI route not used)
+- `SARVAM_API_KEY` and `STRESS_API_KEY` (optional if those routes are not used)
+- `CORS_ORIGIN` (required; use the deployed app origin, not `*` in production)
 
-3. Install dependencies:
+1. Install dependencies:
 
 ```bash
 npm install
 ```
 
-4. Run in dev mode:
+1. Run in dev mode:
 
 ```bash
 npm run dev
 ```
 
-5. Build and run production:
+1. Build and run production:
 
 ```bash
 npm run build
@@ -49,6 +52,8 @@ npm start
 - `GET /api/health`
 - `GET /api/youtube/search?q=meditation&maxResults=12&language=en`
 - `POST /api/ai/chat`
+- `POST /api/stress/analyze`
+- `POST /api/tts/sarvam`
 
 ## Realtime Events (Socket.IO)
 

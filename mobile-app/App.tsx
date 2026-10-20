@@ -17,6 +17,7 @@ import { ThemeProvider, useTheme } from './context/ThemeContext';
 import { UserSettings, AppState } from './src/types';
 import { authService, supabase } from './services/supabase';
 import { registerForPushNotificationsAsync } from './services/pushNotifications';
+import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const DEFAULT_SETTINGS: UserSettings = {
   // ... (same as before) ...
@@ -33,6 +34,7 @@ const DEFAULT_SETTINGS: UserSettings = {
 const AppContent = () => {
   const { session, loading: authLoading, user, signOut, skipAuth } = useAuth();
   const { theme } = useTheme();
+  const insets = useSafeAreaInsets();
   const [appState, setAppState] = useState<AppState>(AppState.ONBOARDING);
   const [activeTab, setActiveTab] = useState<'companion' | 'reflections' | 'videos'>('companion');
   const [settings, setSettings] = useState<UserSettings>(DEFAULT_SETTINGS);
@@ -142,7 +144,7 @@ const AppContent = () => {
         setSettings({ ...DEFAULT_SETTINGS, ...JSON.parse(savedSettings) });
       } else if (user?.user_metadata?.username) {
         // Use username from metadata as default name
-        setSettings(prev => ({ ...prev, name: user.user_metadata.username }));
+        setSettings(prev => ({ ...prev, name: user.user_metadata.username ?? prev.name }));
       }
 
       const activeState = onboarded === 'true' ? AppState.CHAT : AppState.ONBOARDING;
@@ -240,12 +242,17 @@ const AppContent = () => {
               {
                 backgroundColor: theme.colors.surfaceHighlight,
                 borderTopColor: theme.colors.border,
+                paddingBottom: Math.max(insets.bottom, 8),
               },
             ]}
+            accessibilityRole="tablist"
           >
             <TouchableOpacity
               style={styles.tabItem}
               onPress={() => setActiveTab('companion')}
+              accessibilityRole="tab"
+              accessibilityLabel="Companion"
+              accessibilityState={{ selected: activeTab === 'companion' }}
             >
               <MessageCircle
                 size={24}
@@ -265,6 +272,9 @@ const AppContent = () => {
             <TouchableOpacity
               style={styles.tabItem}
               onPress={() => setActiveTab('videos')}
+              accessibilityRole="tab"
+              accessibilityLabel="Wisdom videos"
+              accessibilityState={{ selected: activeTab === 'videos' }}
             >
               <PlayCircle
                 size={24}
@@ -284,6 +294,9 @@ const AppContent = () => {
             <TouchableOpacity
               style={styles.tabItem}
               onPress={() => setActiveTab('reflections')}
+              accessibilityRole="tab"
+              accessibilityLabel="Reflections"
+              accessibilityState={{ selected: activeTab === 'reflections' }}
             >
               <BookOpen
                 size={24}
@@ -319,9 +332,11 @@ export default function App() {
   return (
     <AuthProvider>
       <ThemeProvider>
-        <NotificationsProvider>
-          <AppContent />
-        </NotificationsProvider>
+        <SafeAreaProvider>
+          <NotificationsProvider>
+            <AppContent />
+          </NotificationsProvider>
+        </SafeAreaProvider>
       </ThemeProvider>
     </AuthProvider>
   );
@@ -339,8 +354,8 @@ const styles = StyleSheet.create({
   tabBar: {
     flexDirection: 'row',
     borderTopWidth: 1,
-    paddingBottom: 25,
-    paddingTop: 12,
+    minHeight: 68,
+    paddingTop: 10,
   },
   tabItem: {
     flex: 1,

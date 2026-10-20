@@ -2,7 +2,7 @@ import * as Device from 'expo-device';
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 
-import { supabase } from './supabase';
+import { pushTokensService } from './supabase';
 
 // ─── Safe expo-notifications import ───
 // expo-notifications remote push was REMOVED from Expo Go in SDK 53+.
@@ -103,17 +103,7 @@ export async function registerForPushNotificationsAsync(userId?: string): Promis
 
     if (userId) {
       try {
-        await supabase.from('push_tokens').upsert(
-          {
-            user_id: userId,
-            token,
-            platform: Platform.OS,
-          },
-          {
-            onConflict: 'user_id,token',
-            ignoreDuplicates: true,
-          }
-        );
+        await pushTokensService.save(token, Platform.OS);
       } catch {
         // ignore (still allow notifications locally)
       }
@@ -134,7 +124,7 @@ export async function scheduleLocalPostNotification(title: string) {
   try {
     await Notifications.scheduleNotificationAsync({
       content: {
-        title: 'DharmaAI',
+        title: 'Saarthi',
         body: title,
         sound: true,
         priority: Notifications.AndroidNotificationPriority.HIGH,

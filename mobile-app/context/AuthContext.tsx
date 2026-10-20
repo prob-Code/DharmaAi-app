@@ -1,13 +1,11 @@
 
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { supabase, authService } from '../services/supabase';
-import { Session, User } from '@supabase/supabase-js';
+import { supabase, authService, CompatSession, CompatUser } from '../services/supabase';
 import { realtimeSocket } from '../services/realtimeSocket';
-import { Config } from '../config';
 
 type AuthContextType = {
-    session: Session | null;
-    user: User | null;
+    session: CompatSession | null;
+    user: CompatUser | null;
     loading: boolean;
     signIn: typeof authService.signIn;
     signUp: typeof authService.signUp;
@@ -28,8 +26,8 @@ const AuthContext = createContext<AuthContextType>({
 export const useAuth = () => useContext(AuthContext);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-    const [session, setSession] = useState<Session | null>(null);
-    const [user, setUser] = useState<User | null>(null);
+    const [session, setSession] = useState<CompatSession | null>(null);
+    const [user, setUser] = useState<CompatUser | null>(null);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
@@ -70,7 +68,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     useEffect(() => {
         if (user?.id) {
-            realtimeSocket.connect(user.id, Config.BACKEND_URL);
+            realtimeSocket.connect(user.id);
         } else {
             realtimeSocket.disconnect();
         }
@@ -96,7 +94,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             expires_in: 3600,
             token_type: 'bearer',
             user: dummyUser,
-        } as Session;
+        } as CompatSession;
         setSession(dummySession);
         setUser(dummyUser);
         setLoading(false);

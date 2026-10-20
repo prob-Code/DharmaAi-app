@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { View, Text, StyleSheet, FlatList, TextInput, TouchableOpacity, ActivityIndicator, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TextInput, TouchableOpacity, ActivityIndicator, KeyboardAvoidingView, Platform, Alert } from 'react-native';
 import { ChevronLeft, Send, Search, Video } from 'lucide-react-native';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
-import { supabase, notificationsService } from '../services/supabase';
+import { notificationsService, messagesService } from '../services/supabase';
 import { realtimeSocket } from '../services/realtimeSocket';
 import { COLORS } from '../constants';
 import { UserSettings } from '../src/types';
 import { VideoRoom } from './VideoRoom';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 interface DirectMessageProps {
   receiver: {
@@ -32,9 +33,12 @@ interface ChatMessage {
 export const DirectMessage: React.FC<DirectMessageProps> = ({ receiver, onBack, settings }) => {
   const { user } = useAuth();
   const { theme } = useTheme();
+  const insets = useSafeAreaInsets();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState('');
   const [loading, setLoading] = useState(true);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [showVideoCall, setShowVideoCall] = useState(false);
   const flatListRef = useRef<FlatList>(null);
 
@@ -64,6 +68,17 @@ export const DirectMessage: React.FC<DirectMessageProps> = ({ receiver, onBack, 
         if (prev.some((m) => m.id === newMsg.id)) {
           return prev;
         }
+        const tempIndex = prev.findIndex((message) =>
+          message.id.startsWith('temp-') &&
+          message.sender_id === newMsg.sender_id &&
+          message.receiver_id === newMsg.receiver_id &&
+          message.content === newMsg.content,
+        );
+        if (tempIndex >= 0) {
+          const next = [...prev];
+          next[tempIndex] = newMsg;
+          return next;
+        }
         return [newMsg, ...prev];
       });
 
@@ -79,31 +94,15 @@ export const DirectMessage: React.FC<DirectMessageProps> = ({ receiver, onBack, 
 
   const fetchMessages = async () => {
     setLoading(true);
+    setError(null);
     try {
-      const { data, error } = await supabase
-        .from('messages')
-        .select('*')
-        .or(`and(sender_id.eq.${user?.id},receiver_id.eq.${receiver.id}),and(sender_id.eq.${receiver.id},receiver_id.eq.${user?.id})`)
-        .order('created_at', { ascending: false })
-        .limit(50);
-
-      if (error) throw error;
-      setMessages(data || []);
-      
-      // Mark received unread messages as read
-      const unreadIds = (data || [])
-        .filter(msg => msg.receiver_id === user?.id && !msg.is_read)
-        .map(msg => msg.id);
-        
-      if (unreadIds.length > 0) {
-        await supabase
-          .from('messages')
-          .update({ is_read: true })
-          .in('id', unreadIds);
-      }
+      const data = await messagesService.getWithUser(receiver.id);
+      setMessages((data || []).slice(-50).reverse());
 
     } catch (error) {
-      console.log('Error fetching messages:', error);
+      console.error('Error fetching messages:', error);
+      setMessages([]);
+      setError('Could not load this conversation. Check your connection and try again.');
     } finally {
       setLoading(false);
     }
@@ -111,22 +110,28 @@ export const DirectMessage: React.FC<DirectMessageProps> = ({ receiver, onBack, 
   
   const markAsRead = async (messageId: string) => {
       try {
-          await supabase.from('messages').update({ is_read: true }).eq('id', messageId);
+          await messagesService.markRead(messageId, receiver.id);
       } catch (e) {
           console.log('Error marking as read', e);
       }
   };
 
   const sendMessage = async () => {
-    if (!inputText.trim()) return;
+    if (!inputText.trim() || sending) return;
+    if (!user?.id) {
+      Alert.alert('Sign in required', 'Please sign in before sending a message.');
+      return;
+    }
     
     const textToSend = inputText.trim();
     setInputText('');
+    setSending(true);
+    setError(null);
 
     // Optimistic UI update
     const tempMsg: ChatMessage = {
-      id: Math.random().toString(), // temporary
-      sender_id: user?.id || '',
+      id: `temp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      sender_id: user.id,
       receiver_id: receiver.id,
       content: textToSend,
       created_at: new Date().toISOString(),
@@ -136,20 +141,10 @@ export const DirectMessage: React.FC<DirectMessageProps> = ({ receiver, onBack, 
     setMessages((prev) => [tempMsg, ...prev]);
 
     try {
-      const { data, error } = await supabase
-        .from('messages')
-        .insert([{
-          sender_id: user?.id,
-          receiver_id: receiver.id,
-          content: textToSend
-        }])
-        .select()
-        .single();
-
-      if (error) throw error;
+      const data = await messagesService.send(receiver.id, textToSend);
       
-      // Replace temp with real
-      setMessages(prev => prev.map(msg => msg.id === tempMsg.id ? data : msg));
+      // Replace the optimistic item and remove a possible realtime duplicate.
+      setMessages(prev => [data, ...prev.filter(msg => msg.id !== tempMsg.id && msg.id !== data.id)]);
 
       realtimeSocket.emitDM(data as ChatMessage);
       realtimeSocket.emitNotification({
@@ -171,9 +166,14 @@ export const DirectMessage: React.FC<DirectMessageProps> = ({ receiver, onBack, 
       );
       
     } catch (error) {
-      console.log('Error sending message:', error);
+      const message = error instanceof Error ? error.message : 'Message could not be sent.';
+      console.error('Error sending message:', error);
+      setError(message);
+      Alert.alert('Message not sent', message);
       // Remove failed message
       setMessages(prev => prev.filter(msg => msg.id !== tempMsg.id));
+    } finally {
+      setSending(false);
     }
   };
 
@@ -196,7 +196,7 @@ export const DirectMessage: React.FC<DirectMessageProps> = ({ receiver, onBack, 
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 80}
     >
-      <View style={[styles.header, dynamicStyles.headerBg, dynamicStyles.headerBorder]}>
+      <View style={[styles.header, dynamicStyles.headerBg, dynamicStyles.headerBorder, { paddingTop: Math.max(insets.top + 8, 16) }]}>
         <TouchableOpacity style={styles.backButton} onPress={onBack}>
           <ChevronLeft color={theme.colors.accent} size={24} />
         </TouchableOpacity>
@@ -207,6 +207,10 @@ export const DirectMessage: React.FC<DirectMessageProps> = ({ receiver, onBack, 
         <TouchableOpacity
           style={[styles.videoCallHeaderBtn, { backgroundColor: 'rgba(96,165,250,0.15)' }]}
           onPress={() => {
+            if (!user?.id) {
+              Alert.alert('Sign in required', 'Please sign in before starting a call.');
+              return;
+            }
             const roomName = `dharma-dm-${[user?.id || 'guest', receiver.id].sort().join('-').slice(0, 20)}`;
             const callerName = settings.name || 'Someone';
 
@@ -255,7 +259,16 @@ export const DirectMessage: React.FC<DirectMessageProps> = ({ receiver, onBack, 
           contentContainerStyle={styles.messageList}
           inverted
           ListEmptyComponent={
-            <Text style={[styles.emptyText, dynamicStyles.mutedColor]}>Start a conversation with {receiver.display_name}.</Text>
+            <View style={styles.emptyState}>
+              <Text style={[styles.emptyText, dynamicStyles.mutedColor]}>
+                {error || `Start a conversation with ${receiver.display_name || receiver.username || 'this person'}.`}
+              </Text>
+              {error && (
+                <TouchableOpacity onPress={() => void fetchMessages()} style={[styles.retryButton, { backgroundColor: theme.colors.accent }]}>
+                  <Text style={styles.retryText}>Try again</Text>
+                </TouchableOpacity>
+              )}
+            </View>
           }
         />
       )}
@@ -268,11 +281,12 @@ export const DirectMessage: React.FC<DirectMessageProps> = ({ receiver, onBack, 
           value={inputText}
           onChangeText={setInputText}
           multiline
+          maxLength={1000}
         />
         <TouchableOpacity 
-          style={[styles.sendButton, !inputText.trim() && { opacity: 0.5 }]} 
+          style={[styles.sendButton, (!inputText.trim() || sending) && { opacity: 0.5 }]}
           onPress={sendMessage}
-          disabled={!inputText.trim()}
+          disabled={!inputText.trim() || sending}
         >
           <Send color={theme.colors.accent} size={20} />
         </TouchableOpacity>
@@ -288,7 +302,7 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingTop: 50,
+    paddingTop: 16,
     paddingHorizontal: 20,
     paddingBottom: 15,
     borderBottomWidth: 1,
@@ -373,5 +387,19 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 40,
     transform: [{ scaleY: -1 }] // Due to inverted flatlist
+  },
+  emptyState: {
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  retryButton: {
+    marginTop: 16,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 18,
+  },
+  retryText: {
+    color: '#000',
+    fontWeight: '700',
   }
 });

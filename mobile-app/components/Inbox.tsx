@@ -1,14 +1,15 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, ActivityIndicator, Alert } from 'react-native';
 import { Search, ChevronLeft, Send, MessageSquare, Video } from 'lucide-react-native';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
-import { supabase, notificationsService } from '../services/supabase';
+import { profilesService, notificationsService } from '../services/supabase';
 import { realtimeSocket } from '../services/realtimeSocket';
 import { COLORS } from '../constants';
 import { UserSettings } from '../src/types';
 import { DirectMessage } from './DirectMessage';
 import { VideoRoom } from './VideoRoom';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 interface Profile {
   id: string;
@@ -25,9 +26,11 @@ interface InboxProps {
 export const Inbox: React.FC<InboxProps> = ({ settings, onBack }) => {
   const { user } = useAuth();
   const { theme } = useTheme();
+  const insets = useSafeAreaInsets();
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [selectedUser, setSelectedUser] = useState<Profile | null>(null);
   const [videoCallUser, setVideoCallUser] = useState<Profile | null>(null);
 
@@ -45,23 +48,20 @@ export const Inbox: React.FC<InboxProps> = ({ settings, onBack }) => {
 
   useEffect(() => {
     // Load recent conversations or all users initially
-    fetchUsers();
-  }, []);
+    void fetchUsers();
+  }, [user?.id]);
 
   const fetchUsers = async () => {
     setLoading(true);
+    setError(null);
     try {
       // Just fetch all users for now except self
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .neq('id', user?.id)
-        .limit(20);
-
-      if (error) throw error;
+      const data = await profilesService.getAll(user?.id);
       setProfiles(data || []);
     } catch (error) {
-      console.log('Error fetching users:', error);
+      console.error('Error fetching users:', error);
+      setError('Could not load people right now. Check your connection and try again.');
+      setProfiles([]);
     } finally {
       setLoading(false);
     }
@@ -75,18 +75,14 @@ export const Inbox: React.FC<InboxProps> = ({ settings, onBack }) => {
     }
     
     setLoading(true);
+    setError(null);
     try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .neq('id', user?.id)
-        .ilike('display_name', `%${text}%`)
-        .limit(20);
-
-      if (error) throw error;
+      const data = await profilesService.search(text, user?.id);
       setProfiles(data || []);
     } catch (error) {
-      console.log('Error searching users:', error);
+      console.error('Error searching users:', error);
+      setError('Search is temporarily unavailable.');
+      setProfiles([]);
     } finally {
       setLoading(false);
     }
@@ -108,6 +104,10 @@ export const Inbox: React.FC<InboxProps> = ({ settings, onBack }) => {
 
   // Start a video call and notify the friend
   const startVideoCall = (friend: Profile) => {
+    if (!user?.id) {
+      Alert.alert('Sign in required', 'Please sign in before starting a call.');
+      return;
+    }
     const roomName = getVideoRoomName(friend.id);
     const callerName = settings.name || 'Someone';
 
@@ -146,7 +146,7 @@ export const Inbox: React.FC<InboxProps> = ({ settings, onBack }) => {
         />
       )}
 
-      <View style={[styles.header, dynamicStyles.headerBg, dynamicStyles.headerBorder]}>
+      <View style={[styles.header, dynamicStyles.headerBg, dynamicStyles.headerBorder, { paddingTop: Math.max(insets.top + 12, 20) }]}>
         <View style={styles.headerTitleContainer}>
           {onBack && (
             <TouchableOpacity onPress={onBack} style={styles.backButton}>
@@ -191,7 +191,10 @@ export const Inbox: React.FC<InboxProps> = ({ settings, onBack }) => {
               <View style={styles.userActions}>
                 <TouchableOpacity
                   style={[styles.videoCallBtn, { backgroundColor: 'rgba(96,165,250,0.15)' }]}
-                  onPress={() => startVideoCall(item)}
+                  onPress={(event) => {
+                    event.stopPropagation();
+                    startVideoCall(item);
+                  }}
                 >
                   <Video color="#60a5fa" size={18} />
                 </TouchableOpacity>
@@ -200,9 +203,16 @@ export const Inbox: React.FC<InboxProps> = ({ settings, onBack }) => {
             </TouchableOpacity>
           )}
           contentContainerStyle={styles.listContent}
-          ListEmptyComponent={
+          ListEmptyComponent={error ? (
+            <View style={styles.emptyState}>
+              <Text style={[styles.emptyText, dynamicStyles.mutedColor]}>{error}</Text>
+              <TouchableOpacity onPress={() => void fetchUsers()} style={[styles.retryButton, { backgroundColor: theme.colors.accent }]}>
+                <Text style={styles.retryText}>Try again</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
             <Text style={[styles.emptyText, dynamicStyles.mutedColor]}>No users found.</Text>
-          }
+          )}
         />
       )}
     </View>
@@ -214,7 +224,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   header: {
-    paddingTop: 50,
+    paddingTop: 20,
     paddingHorizontal: 20,
     paddingBottom: 20,
     borderBottomWidth: 1,
@@ -282,6 +292,20 @@ const styles = StyleSheet.create({
   emptyText: {
     textAlign: 'center',
     marginTop: 40,
+  },
+  emptyState: {
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  retryButton: {
+    marginTop: 16,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 18,
+  },
+  retryText: {
+    color: '#000',
+    fontWeight: '700',
   },
   userActions: {
     flexDirection: 'row',

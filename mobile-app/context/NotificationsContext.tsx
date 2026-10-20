@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
-import { supabase, notificationsService } from '../services/supabase';
+import { notificationsService } from '../services/supabase';
 import { useAuth } from './AuthContext';
 import { Notification, NotificationType } from '../types/social';
 import { scheduleLocalPostNotification } from '../services/pushNotifications';
@@ -9,6 +9,7 @@ interface NotificationsContextValue {
     notifications: Notification[];
     unreadCount: number;
     refresh: () => Promise<void>;
+    markRead: (notificationId: string) => Promise<void>;
     markAllAsRead: () => Promise<void>;
 }
 
@@ -16,17 +17,18 @@ const NotificationsContext = createContext<NotificationsContextValue>({
     notifications: [],
     unreadCount: 0,
     refresh: async () => { },
+    markRead: async () => { },
     markAllAsRead: async () => { },
 });
 
 export const useNotifications = () => useContext(NotificationsContext);
 
-const mapRowToNotification = (row: any): Notification => {
+const mapRowToNotification = (row: any, fallbackUserId?: string): Notification => {
     const title = row.content || 'Notification';
 
     return {
         id: row.id,
-        userId: row.user_id,
+        userId: row.user_id || fallbackUserId || '',
         type: row.type as NotificationType,
         title,
         body: '',
@@ -51,7 +53,7 @@ export const NotificationsProvider: React.FC<{ children: React.ReactNode }> = ({
 
         try {
             const rows = await notificationsService.getAll();
-            const mapped = (rows || []).map(mapRowToNotification);
+            const mapped = (rows || []).map((row: any) => mapRowToNotification(row, user.id));
             setNotifications(mapped);
         } catch (e) {
             console.log('Error loading notifications', e);
@@ -61,8 +63,10 @@ export const NotificationsProvider: React.FC<{ children: React.ReactNode }> = ({
     }, [user, isGuestUser]);
 
     useEffect(() => {
+        didHydrateRef.current = false;
+        setNotifications([]);
+
         if (!user) {
-            setNotifications([]);
             return;
         }
 
@@ -78,20 +82,20 @@ export const NotificationsProvider: React.FC<{ children: React.ReactNode }> = ({
             didHydrateRef.current = true;
         });
 
-        // Subscribe to realtime notifications (wrapped in try/catch for Realtime not enabled)
-        let channel: any = null;
+        // Keep the legacy Firestore listener and Socket.IO listener independent.
+        let firestoreSubscription: { unsubscribe?: () => void } | undefined;
         try {
-          channel = notificationsService.subscribe(user.id, (payload: any) => {
+            firestoreSubscription = notificationsService.subscribe(user.id, (payload: any) => {
             const row = payload?.new || payload;
             if (!row) return;
-            const mapped = mapRowToNotification(row);
-            setNotifications(prev => [mapped, ...prev]);
+            const mapped = mapRowToNotification(row, user.id);
+            setNotifications(prev => [mapped, ...prev.filter(item => item.id !== mapped.id)]);
 
             // OS-level local notification for all types (works in Expo Go)
             if (didHydrateRef.current) {
               scheduleLocalPostNotification(mapped.title || 'New notification');
             }
-          });
+            });
         } catch (e) {
           console.log('[Notifications] Realtime subscription failed (may not be enabled):', e);
         }
@@ -119,16 +123,26 @@ export const NotificationsProvider: React.FC<{ children: React.ReactNode }> = ({
         });
 
         return () => {
-            try {
-                if (channel) supabase.removeChannel(channel);
-            } catch (e) {
-                // ignore
-            }
+            firestoreSubscription?.unsubscribe?.();
             unsubscribeSocket?.();
         };
     }, [user, isGuestUser, loadNotifications]);
 
     const unreadCount = notifications.filter(n => !n.isRead).length;
+
+    const markRead = async (notificationId: string) => {
+        if (!notificationId) return;
+        if (!user || isGuestUser) {
+            setNotifications(prev => prev.map(n => n.id === notificationId ? { ...n, isRead: true } : n));
+            return;
+        }
+        try {
+            await notificationsService.markAsRead(notificationId);
+            setNotifications(prev => prev.map(n => n.id === notificationId ? { ...n, isRead: true } : n));
+        } catch (e) {
+            console.log('Error marking notification as read', e);
+        }
+    };
 
     const markAllAsRead = async () => {
         if (!user || isGuestUser) {
@@ -148,6 +162,7 @@ export const NotificationsProvider: React.FC<{ children: React.ReactNode }> = ({
         notifications,
         unreadCount,
         refresh: loadNotifications,
+        markRead,
         markAllAsRead,
     };
 

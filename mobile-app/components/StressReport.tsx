@@ -269,11 +269,17 @@ export const StressReport: React.FC<Props> = ({ visible, onClose, data, isLoadin
         `;
 
         try {
+            if (Platform.OS === 'web') {
+                // The browser print dialog lets the user choose “Save as PDF”.
+                await Print.printAsync({ html });
+                return;
+            }
+
             const { uri } = await Print.printToFileAsync({ html });
             if (await Sharing.isAvailableAsync()) {
                 await Sharing.shareAsync(uri, { UTI: '.pdf', mimeType: 'application/pdf' });
             } else {
-                Alert.alert("Success", "PDF generated, but sharing is not available on this device.");
+                Alert.alert("Success", `PDF generated at ${uri}`);
             }
         } catch (err) {
             console.error("PDF generation error:", err);
