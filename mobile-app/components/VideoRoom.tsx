@@ -31,11 +31,16 @@ class CallErrorBoundary extends Component<
 function loadCore(): CoreComponent | null {
     if (cachedCore || loadError) return cachedCore;
     try {
-        if (!NativeModules.WebRTCModule) {
+        if (!NativeModules.WebRTCModule || !NativeModules.LivekitReactNativeModule) {
             loadError = 'The native WebRTC module is not installed in this build.';
             return null;
         }
-        require('@livekit/react-native').registerGlobals();
+        const livekit = require('@livekit/react-native');
+        livekit.registerGlobals();
+        if (typeof globalThis.RTCPeerConnection !== 'function' || !globalThis.navigator?.mediaDevices) {
+            loadError = 'The native WebRTC module could not be initialized.';
+            return null;
+        }
         cachedCore = require('./VideoRoomCore').VideoRoomCore;
     } catch (e: any) {
         loadError = e?.message ?? String(e);

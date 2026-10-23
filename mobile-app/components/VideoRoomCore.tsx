@@ -37,6 +37,21 @@ const CallView: React.FC<{ onLeave: () => void }> = ({ onLeave }) => {
     const tracks = useTracks([Track.Source.Camera]);
     const { localParticipant, isMicrophoneEnabled, isCameraEnabled } = useLocalParticipant();
 
+    React.useEffect(() => {
+        let active = true;
+        void Promise.all([
+            localParticipant.setMicrophoneEnabled(true),
+            localParticipant.setCameraEnabled(true),
+        ]).catch((mediaError) => {
+            if (active) {
+                console.warn('LiveKit media could not start:', mediaError);
+            }
+        });
+        return () => {
+            active = false;
+        };
+    }, [localParticipant]);
+
     const renderTrack: ListRenderItem<TrackReferenceOrPlaceholder> = ({ item }) => {
         if (isTrackReference(item)) {
             return <VideoTrack trackRef={item} style={styles.participantView} />;
@@ -156,9 +171,17 @@ export const VideoRoomCore: React.FC<VideoRoomProps> = ({ roomName, visible, onC
     // Native audio session only while the call is on screen
     React.useEffect(() => {
         if (!joinInfo) return;
-        AudioSession.startAudioSession();
+        let active = true;
+        void AudioSession.startAudioSession().catch((audioError) => {
+            if (active) {
+                console.warn('LiveKit audio session could not start:', audioError);
+            }
+        });
         return () => {
-            AudioSession.stopAudioSession();
+            active = false;
+            void AudioSession.stopAudioSession().catch((audioError) => {
+                console.warn('LiveKit audio session could not stop:', audioError);
+            });
         };
     }, [joinInfo]);
 
@@ -202,8 +225,8 @@ export const VideoRoomCore: React.FC<VideoRoomProps> = ({ roomName, visible, onC
                             serverUrl={joinInfo.url}
                             token={joinInfo.token}
                             connect={true}
-                            audio={true}
-                            video={true}
+                            audio={false}
+                            video={false}
                             onDisconnected={onClose}
                             onError={(e) => {
                                 console.warn('LiveKit error:', e);

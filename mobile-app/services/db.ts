@@ -65,7 +65,7 @@ function requireUser() {
     return u;
 }
 
-async function socialApi<T = any>(path: string, init: RequestInit = {}): Promise<T> {
+async function socialApi<T = any>(path: string, init: RequestInit = {}, allowTokenRefresh = true): Promise<T> {
     const token = await getIdToken();
     if (!token) throw new Error('Not authenticated');
     const response = await fetch(`${Config.BACKEND_URL}/api/social${path}`, {
@@ -76,6 +76,19 @@ async function socialApi<T = any>(path: string, init: RequestInit = {}): Promise
             ...(init.headers || {}),
         },
     });
+    if (response.status === 401 && allowTokenRefresh) {
+        const refreshedToken = await getIdToken(true);
+        if (refreshedToken) {
+            return socialApi<T>(path, {
+                ...init,
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${refreshedToken}`,
+                    ...(init.headers || {}),
+                },
+            }, false);
+        }
+    }
     if (!response.ok) {
         const body = await response.json().catch(() => null);
         const message = body?.error || `Social API request failed (${response.status})`;
