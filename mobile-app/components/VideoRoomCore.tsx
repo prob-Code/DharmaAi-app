@@ -102,10 +102,20 @@ export const VideoRoomCore: React.FC<VideoRoomProps> = ({ roomName, visible, onC
     const requestPermissions = useCallback(async () => {
         if (Platform.OS === 'android') {
             try {
-                const grants = await PermissionsAndroid.requestMultiple([
-                    PermissionsAndroid.PERMISSIONS.CAMERA,
-                    PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
-                ]);
+                // Android 12+ needs BLUETOOTH_CONNECT before LiveKit's audio session can read
+                // Bluetooth outputs. It is requested with the others, but not required to join.
+                const grants = await PermissionsAndroid.requestMultiple(
+                    Platform.Version >= 31
+                        ? [
+                            PermissionsAndroid.PERMISSIONS.CAMERA,
+                            PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
+                            PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
+                        ]
+                        : [
+                            PermissionsAndroid.PERMISSIONS.CAMERA,
+                            PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
+                        ]
+                );
                 const cameraOk = grants[PermissionsAndroid.PERMISSIONS.CAMERA] === PermissionsAndroid.RESULTS.GRANTED;
                 const audioOk = grants[PermissionsAndroid.PERMISSIONS.RECORD_AUDIO] === PermissionsAndroid.RESULTS.GRANTED;
                 if (!cameraOk || !audioOk) {
