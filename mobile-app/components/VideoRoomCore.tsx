@@ -140,7 +140,10 @@ export const VideoRoomCore: React.FC<VideoRoomProps> = ({ roomName, visible, onC
                 },
                 body: JSON.stringify({ roomName: cleanRoom, name: displayName }),
             });
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            if (!res.ok) {
+                const body = await res.json().catch(() => null);
+                throw new Error(body?.error || `Video call service unavailable (${res.status})`);
+            }
             const data = await res.json();
             if (!data.token || !data.url) throw new Error('Missing token');
             setJoinInfo({ token: data.token, url: data.url });
@@ -186,13 +189,18 @@ export const VideoRoomCore: React.FC<VideoRoomProps> = ({ roomName, visible, onC
     }, [joinInfo]);
 
     const headerTitle = friendName ? `Call: ${friendName}` : 'Community Circle';
+    const closeRoom = useCallback(() => {
+        setJoinInfo(null);
+        setPermissionGranted(false);
+        onClose();
+    }, [onClose]);
 
     return (
         <Modal
             visible={visible}
             animationType="slide"
             transparent={false}
-            onRequestClose={onClose}
+            onRequestClose={closeRoom}
         >
             <SafeAreaView style={[styles.container, { backgroundColor: '#000' }]}>
                 <View style={[styles.header, { backgroundColor: theme.colors.surfaceHighlight, borderBottomColor: theme.colors.border }]}>
@@ -203,7 +211,7 @@ export const VideoRoomCore: React.FC<VideoRoomProps> = ({ roomName, visible, onC
                         </View>
                         <Text style={[styles.title, { color: theme.colors.text }]} numberOfLines={1}>{headerTitle}</Text>
                     </View>
-                    <TouchableOpacity onPress={onClose} style={[styles.closeButton, { backgroundColor: 'rgba(239,68,68,0.15)' }]}>
+                    <TouchableOpacity onPress={closeRoom} style={[styles.closeButton, { backgroundColor: 'rgba(239,68,68,0.15)' }]}>
                         <X color="#ef4444" size={20} />
                         <Text style={styles.closeText}>Leave</Text>
                     </TouchableOpacity>
@@ -227,14 +235,14 @@ export const VideoRoomCore: React.FC<VideoRoomProps> = ({ roomName, visible, onC
                             connect={true}
                             audio={false}
                             video={false}
-                            onDisconnected={onClose}
+                            onDisconnected={closeRoom}
                             onError={(e) => {
                                 console.warn('LiveKit error:', e);
                                 setError('The call dropped. Check your connection and try again.');
                                 setJoinInfo(null);
                             }}
                         >
-                            <CallView onLeave={onClose} />
+                            <CallView onLeave={closeRoom} />
                         </LiveKitRoom>
                     ) : (
                         <View style={styles.loading}>
