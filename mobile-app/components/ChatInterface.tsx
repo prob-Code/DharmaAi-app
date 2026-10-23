@@ -2,14 +2,13 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator, Image, Animated, Modal } from 'react-native';
 import { createAudioPlayer, setAudioModeAsync } from 'expo-audio';
-import { useVideoPlayer, VideoView } from 'expo-video';
 import { BlurView } from 'expo-blur';
 import { Mic, Send, Music, Volume2, VolumeX, Settings, Brain, Bell } from 'lucide-react-native';
 import { Message, UserSettings } from '../src/types';
 import { getTranslation } from '../translations';
 import { getAIResponse } from '../services/gemini';
 import { getSarvamTTS } from '../services/sarvam';
-import { getSoundAsset, COLORS, KRISHNA_IMAGE, KRISHNA_VIDEO_URL, testAllSounds } from '../constants';
+import { getSoundAsset, COLORS, KRISHNA_IMAGE, testAllSounds } from '../constants';
 import { useTheme } from '../context/ThemeContext';
 import { analyzeStress, StressAnalysisResult } from '../services/stressAnalysis';
 import { StressReport } from './StressReport';
@@ -65,20 +64,15 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
         markRead: markNotificationRead,
         markAllAsRead,
     } = useNotifications();
-    const krishnaVideoPlayer = useVideoPlayer(KRISHNA_VIDEO_URL, (player) => {
-        player.loop = true;
-        player.muted = true;
-    });
     const [isAmbientPlaying, setIsAmbientPlaying] = useState(true); // Auto-play background sound
     const [krishnaOpacity] = useState(new Animated.Value(0));
     const [isVoiceSpeaking, setIsVoiceSpeaking] = useState(false);
 
-    useEffect(() => {
-        const shouldPlay = settings.krishnaMode || isLoading || isVoiceSpeaking;
-        if (shouldPlay) krishnaVideoPlayer.play();
-        else krishnaVideoPlayer.pause();
-    }, [isLoading, isVoiceSpeaking, krishnaVideoPlayer, settings.krishnaMode]);
     const ambientVolumeRef = useRef(0);
+    const ambientSoundRef = useRef<any>(null);
+    const ambientLoadIdRef = useRef(0);
+    const voiceSoundRef = useRef<any>(null);
+    const voiceLoadIdRef = useRef(0);
     const scaleAnim = useRef(new Animated.Value(1)).current;
     
     // Stress Report State
@@ -89,7 +83,6 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
 
     // Web audio ref for HTML5 Audio API
     const webAudioRef = useRef<HTMLAudioElement | null>(null);
-    const webVideoRef = useRef<HTMLVideoElement | null>(null);
 
     // Memoize dynamic styles based on theme
     const dynamicStyles = useMemo(() => ({
@@ -189,16 +182,6 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
             useNativeDriver: true,
         }).start();
 
-        // Handle Web video playback specifically to bypass browser autoplay restrictions
-        if (Platform.OS === 'web' && webVideoRef.current) {
-            if (shouldShow) {
-                webVideoRef.current.muted = true;
-                webVideoRef.current.play().catch(e => console.log("📹 [WEB] Background video play failed:", e));
-            } else {
-                webVideoRef.current.pause();
-            }
-        }
-
         if (isVoiceSpeaking) {
             // Speaking indicator: Fast heartbeat / talking pulse
             Animated.loop(
@@ -244,7 +227,23 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
     // ==========================================
     useEffect(() => {
         let currentSound: any = null;
-        let fadeInterval: NodeJS.Timeout | null = null;
+        const loadId = ++ambientLoadIdRef.current;
+        const stopPreviousAmbient = async () => {
+            const previous = ambientSoundRef.current;
+            ambientSoundRef.current = null;
+            if (previous) {
+                await previous.pauseAsync().catch(() => undefined);
+                await previous.unloadAsync().catch((error: unknown) => {
+                    console.warn('Previous ambient sound cleanup failed:', error);
+                });
+            }
+            if (webAudioRef.current) {
+                webAudioRef.current.pause();
+                webAudioRef.current.removeAttribute('src');
+                webAudioRef.current.load();
+            }
+            setSound(null);
+        };
 
         const loadSoundWeb = async (url: string, soundName?: string) => {
             // Use HTML5 Audio for web.
@@ -277,6 +276,10 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
                 const maxAttempts = 2;
                 
                 const onCanPlay = () => {
+                    if (loadId !== ambientLoadIdRef.current || !isAmbientPlaying) {
+                        webAudioRef.current?.pause();
+                        return;
+                    }
                     clearTimeout(loadTimeout);
                     webAudioRef.current?.removeEventListener('canplay', onCanPlay);
                     webAudioRef.current?.removeEventListener('error', onError);
@@ -286,6 +289,10 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
                 };
                 
                 const onError = (e: Event) => {
+                    if (loadId !== ambientLoadIdRef.current || !isAmbientPlaying) {
+                        resolve(false);
+                        return;
+                    }
                     clearTimeout(loadTimeout);
                     webAudioRef.current?.removeEventListener('canplay', onCanPlay);
                     webAudioRef.current?.removeEventListener('error', onError);
@@ -309,7 +316,7 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
                     if (loadAttempts < maxAttempts) {
                         console.log(`🔄 [WEB] Retrying (attempt ${loadAttempts + 1}/${maxAttempts})...`);
                         setTimeout(() => {
-                            if (webAudioRef.current) {
+                            if (loadId === ambientLoadIdRef.current && isAmbientPlaying && webAudioRef.current) {
                                 webAudioRef.current.load();
                             }
                         }, 800);
@@ -332,6 +339,10 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
                 
                 // Timeout after 8 seconds
                 loadTimeout = setTimeout(() => {
+                    if (loadId !== ambientLoadIdRef.current || !isAmbientPlaying) {
+                        resolve(false);
+                        return;
+                    }
                     webAudioRef.current?.removeEventListener('canplay', onCanPlay);
                     webAudioRef.current?.removeEventListener('error', onError);
                     console.error(`❌ [WEB] Audio loading timeout for: ${url}`);
@@ -353,7 +364,12 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
                     soundAsset,
                     { isLooping: true, volume: 0 }
                 );
+                if (loadId !== ambientLoadIdRef.current) {
+                    await newSound.unloadAsync();
+                    return;
+                }
                 currentSound = newSound;
+                ambientSoundRef.current = newSound;
                 setSound(newSound);
                 console.log(`✅ [NATIVE] Sound loaded successfully!`);
             } catch (error) {
@@ -363,6 +379,9 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
 
         const loadSound = async () => {
             try {
+                await stopPreviousAmbient();
+                if (loadId !== ambientLoadIdRef.current || !isAmbientPlaying) return;
+
                 // Ensure audio mode is set for background playback (native only)
                 if (Platform.OS !== 'web' && Audio) {
                     try {
@@ -378,11 +397,6 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
                 // Skip if silence is selected
                 if (settings.soundType === 'silence') {
                     console.log("🔇 Silence mode selected - no ambient sound");
-                    if (webAudioRef.current) {
-                        webAudioRef.current.pause();
-                        webAudioRef.current.src = '';
-                    }
-                    setSound(null);
                     return;
                 }
 
@@ -417,20 +431,25 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
         loadSound();
 
         return () => {
-            if (fadeInterval) clearInterval(fadeInterval);
-            if (currentSound && Audio) {
-                try {
-                    currentSound.unloadAsync();
-                } catch (e) {
-                    // Ignore cleanup errors
-                }
+            if (loadId === ambientLoadIdRef.current) {
+                ambientLoadIdRef.current++;
+            }
+            const soundToStop = ambientSoundRef.current || currentSound;
+            ambientSoundRef.current = null;
+            if (soundToStop && Audio) {
+                void soundToStop.pauseAsync().catch(() => undefined);
+                void soundToStop.unloadAsync().catch((error: unknown) => {
+                    console.warn('Ambient sound cleanup failed:', error);
+                });
             }
             setSound(null);
             if (webAudioRef.current) {
                 webAudioRef.current.pause();
+                webAudioRef.current.removeAttribute('src');
+                webAudioRef.current.load();
             }
         };
-    }, [settings.soundType]);
+    }, [settings.soundType, isAmbientPlaying]);
 
     // ==========================================
     // AMBIENT SOUND - Playback with Smooth Fade-In
@@ -540,7 +559,7 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
             }
         };
 
-        if (isAmbientPlaying) {
+        if (isAmbientPlaying && settings.soundType !== 'silence') {
             fadeIn();
         } else {
             pauseAmbient();
@@ -549,13 +568,13 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
         return () => {
             if (fadeInterval) clearInterval(fadeInterval);
         };
-    }, [sound, isAmbientPlaying]);
+    }, [sound, isAmbientPlaying, settings.soundType]);
 
     // ==========================================
     // VOLUME DUCKING - Lower ambient when voice speaks
     // ==========================================
     useEffect(() => {
-        if (!isAmbientPlaying) return;
+        if (!isAmbientPlaying || settings.soundType === 'silence') return;
 
         const duckVolume = async () => {
             const { duckedVolume, normalVolume } = AUDIO_CONFIG.ambient;
@@ -564,24 +583,60 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
             if (Platform.OS === 'web') {
                 if (webAudioRef.current) {
                     webAudioRef.current.volume = targetVolume;
+                    if (isVoiceSpeaking) {
+                        webAudioRef.current.pause();
+                    } else if (isAmbientPlaying) {
+                        await webAudioRef.current.play().catch(() => undefined);
+                    }
                 }
             } else {
                 if (sound) {
                     try {
-                        await sound.setVolumeAsync(targetVolume);
+                        if (isVoiceSpeaking) {
+                            await sound.pauseAsync();
+                        } else if (isAmbientPlaying) {
+                            await sound.setVolumeAsync(normalVolume);
+                            await sound.playAsync();
+                        }
                     } catch (e) {
-                        // Ignore
+                        console.warn('Ambient voice-priority update failed:', e);
                     }
                 }
             }
         };
 
         duckVolume();
-    }, [isVoiceSpeaking, sound, isAmbientPlaying]);
+    }, [isVoiceSpeaking, sound, isAmbientPlaying, settings.soundType]);
 
     // Toggle Ambient
+    const stopAmbientImmediately = () => {
+        ambientLoadIdRef.current += 1;
+        const currentSound = ambientSoundRef.current;
+        ambientSoundRef.current = null;
+        setSound(null);
+        ambientVolumeRef.current = 0;
+
+        if (currentSound) {
+            void currentSound.pauseAsync().catch(() => undefined);
+            void currentSound.unloadAsync().catch((error: unknown) => {
+                console.warn('Immediate ambient sound cleanup failed:', error);
+            });
+        }
+
+        if (webAudioRef.current) {
+            webAudioRef.current.pause();
+            webAudioRef.current.removeAttribute('src');
+            webAudioRef.current.load();
+        }
+    };
+
     const toggleAmbient = () => {
-        console.log("🔊 Toggling ambient:", !isAmbientPlaying ? "ON" : "OFF");
+        if (isAmbientPlaying) {
+            console.log("🔇 Stopping ambient sound immediately");
+            stopAmbientImmediately();
+        } else {
+            console.log("🔊 Starting ambient sound");
+        }
         setIsAmbientPlaying(prev => !prev);
     };
 
@@ -703,10 +758,13 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
     }, [settings.soundType]);
 
     const playVoice = async (base64Audio?: string | null) => {
-        if (voiceSound) {
-            if (Platform.OS !== 'web' && Audio) {
-                await voiceSound.unloadAsync();
-            }
+        const voiceLoadId = ++voiceLoadIdRef.current;
+        const previousVoice = voiceSoundRef.current;
+        if (previousVoice) {
+            await previousVoice.unloadAsync().catch((error: unknown) => {
+                console.warn('Voice sound cleanup failed:', error);
+            });
+            voiceSoundRef.current = null;
             setVoiceSound(null);
         }
         if (!settings.voiceEnabled) return;
@@ -722,7 +780,14 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
                 audio.onerror = () => setIsVoiceSpeaking(false);
                 document.body.appendChild(audio);
                 await audio.play();
-                setVoiceSound({ unloadAsync: async () => { audio.pause(); audio.remove(); } });
+                if (voiceLoadId !== voiceLoadIdRef.current) {
+                    audio.pause();
+                    audio.remove();
+                    return;
+                }
+                const webVoice = { unloadAsync: async () => { audio.pause(); audio.remove(); } };
+                voiceSoundRef.current = webVoice;
+                setVoiceSound(webVoice);
             } catch (e) {
                 console.error("Failed to play Sarvam audio in browser:", e);
                 setIsVoiceSpeaking(false);
@@ -741,6 +806,11 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
                         }
                     }
                 );
+                if (voiceLoadId !== voiceLoadIdRef.current) {
+                    await newVoice.unloadAsync();
+                    return;
+                }
+                voiceSoundRef.current = newVoice;
                 setVoiceSound(newVoice);
                 setIsVoiceSpeaking(true);
             } catch (e) {
@@ -754,6 +824,17 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
             setIsVoiceSpeaking(false);
         }
     };
+
+    useEffect(() => () => {
+        voiceLoadIdRef.current++;
+        const activeVoice = voiceSoundRef.current;
+        voiceSoundRef.current = null;
+        if (activeVoice) {
+            void activeVoice.unloadAsync().catch((error: unknown) => {
+                console.warn('Voice sound cleanup failed:', error);
+            });
+        }
+    }, []);
 
     const handleSend = async () => {
         if (!input.trim()) return;
@@ -844,42 +925,11 @@ export const ChatInterface: React.FC<Props> = ({ settings, onUpdateSettings, onO
                         height: '100%'
                     }}>
                         
-                        {/* Platform-specific rendering */}
-                        {Platform.OS === 'web' ? (
-                            // Web: Use HTML5 video as full background
-                            <video
-                                ref={webVideoRef}
-                                autoPlay
-                                muted
-                                loop
-                                playsInline
-                                style={{
-                                    position: 'absolute',
-                                    width: '100%',
-                                    height: '100%',
-                                    objectFit: 'cover',
-                                    zIndex: 1
-                                } as any}
-                                onError={() => console.error('[ChatInterface] Video failed to load:', KRISHNA_VIDEO_URL)}
-                            >
-                                <source src={KRISHNA_VIDEO_URL} type="video/mp4" />
-                            </video>
-                        ) : (
-                            // Mobile: local image always visible; the video plays over it once loaded
-                            <>
-                                <Image
-                                    source={KRISHNA_IMAGE}
-                                    resizeMode="cover"
-                                    style={{ position: 'absolute', width: '100%', height: '100%' }}
-                                />
-                                <VideoView
-                                    player={krishnaVideoPlayer}
-                                    nativeControls={false}
-                                    contentFit="cover"
-                                    style={{...styles.krishnaImage, position: 'absolute', width: '100%', height: '100%'} as any}
-                                />
-                            </>
-                        )}
+                        <Image
+                            source={KRISHNA_IMAGE}
+                            resizeMode="cover"
+                            style={{ position: 'absolute', width: '100%', height: '100%' }}
+                        />
                         
                         {/* Overlay for better text contrast */}
                         <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.isDark ? 'rgba(0,0,0,0.3)' : 'rgba(255,255,255,0.15)', zIndex: 2 }]} />

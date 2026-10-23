@@ -26,7 +26,7 @@ import {
     db, auth, currentUser, waitForAuthReady,
     signInWithEmailAndPassword, createUserWithEmailAndPassword,
     signInWithCredential, firebaseSignOut, updateFirebaseProfile,
-    sendPasswordResetEmail, deleteUser, GoogleAuthProvider,
+    sendPasswordResetEmail,     deleteUser, GoogleAuthProvider, getIdToken,
 } from './firebase';
 import { Config } from '../config';
 
@@ -63,6 +63,24 @@ function requireUser() {
     const u = currentUser();
     if (!u) throw new Error('Not authenticated');
     return u;
+}
+
+async function socialApi<T = any>(path: string, init: RequestInit = {}): Promise<T> {
+    const token = await getIdToken();
+    if (!token) throw new Error('Not authenticated');
+    const response = await fetch(`${Config.BACKEND_URL}/api/social${path}`, {
+        ...init,
+        headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+            ...(init.headers || {}),
+        },
+    });
+    if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.error || `Social API request failed (${response.status})`);
+    }
+    return response.status === 204 ? (undefined as T) : response.json();
 }
 
 async function requireUserAsync() {
@@ -229,6 +247,8 @@ export const authService = {
             redirectUri,
             scopes: ['openid', 'profile', 'email'],
             responseType: AuthSession.ResponseType.IdToken,
+            // Google rejects code_challenge_method for this implicit ID-token flow.
+            usePKCE: false,
             extraParams: { prompt: 'select_account' },
         });
 
@@ -401,53 +421,20 @@ export const authService = {
 export const postsService = {
 
     create: async (content: string, moodTag?: string, isAnonymous = false, imageUrl?: string) => {
-        const user = await requireUserAsync();
         const cleanContent = content.trim();
         if (!cleanContent) throw new Error('Reflection cannot be empty.');
         if (cleanContent.length > 300) throw new Error('Reflection must be 300 characters or fewer.');
-        const author = await profileSnapshot(user.uid);
-
-        const ref = await addDoc(collection(db, 'posts'), {
-            user_id: user.uid,
-            content: cleanContent,
-            mood_tag: moodTag ?? null,
-            is_anonymous: isAnonymous,
-            image_url: imageUrl ?? null,
-            community_id: null,
-            likes_count: 0,
-            comments_count: 0,
-            created_at: serverTimestamp(),
-            user: author,
-        });
-
-        const snap = await getDoc(ref);
-        return { ...row(snap), isLiked: false };
+        return socialApi('/posts', { method: 'POST', body: JSON.stringify({ content: cleanContent, moodTag, isAnonymous, imageUrl }) });
     },
 
     getFeed: async (limit = 20, cursor?: string) => {
-        const user = requireUser();
-
-        let q = query(collection(db, 'posts'), orderBy('created_at', 'desc'), fsLimit(limit));
-        if (cursor) q = query(collection(db, 'posts'), orderBy('created_at', 'desc'), startAfter(new Date(cursor)), fsLimit(limit));
-
-        const snaps = await getDocs(q);
-        const posts = snaps.docs.map(row);
-        const liked = await likedPostIds(user.uid, posts.map(p => p.id));
-        return posts.map(p => ({ ...p, isLiked: liked.has(p.id) }));
+        void cursor;
+        return socialApi(`/posts?limit=${limit}`);
     },
 
     getExplore: async (limit = 20, cursor?: string) => {
-        const user = currentUser();
-
-        let q = query(collection(db, 'posts'), orderBy('created_at', 'desc'), fsLimit(limit));
-        if (cursor) q = query(collection(db, 'posts'), orderBy('created_at', 'desc'), startAfter(new Date(cursor)), fsLimit(limit));
-
-        const snaps = await getDocs(q);
-        const posts = snaps.docs.map(row);
-        if (!user) return posts.map(p => ({ ...p, isLiked: false }));
-
-        const liked = await likedPostIds(user.uid, posts.map(p => p.id));
-        return posts.map(p => ({ ...p, isLiked: liked.has(p.id) }));
+        void cursor;
+        return socialApi(`/posts?limit=${limit}`);
     },
 
     getByUser: async (userId: string, limit = 20) => {
@@ -470,13 +457,7 @@ export const postsService = {
     },
 
     delete: async (postId: string) => {
-        const batch = writeBatch(db);
-        const cs = await getDocs(collection(db, 'posts', postId, 'comments'));
-        cs.forEach(c => batch.delete(c.ref));
-        const ls = await getDocs(collection(db, 'posts', postId, 'likes'));
-        ls.forEach(l => batch.delete(l.ref));
-        batch.delete(doc(db, 'posts', postId));
-        await batch.commit();
+        await socialApi(`/posts/${postId}`, { method: 'DELETE' });
     },
 };
 
@@ -487,20 +468,8 @@ export const postsService = {
 export const likesService = {
     /** true = ab like hai, false = unlike ho gaya */
     toggle: async (postId: string) => {
-        const user = requireUser();
-        const likeRef = doc(db, 'posts', postId, 'likes', user.uid);
-        const postRef = doc(db, 'posts', postId);
-
-        const existing = await getDoc(likeRef);
-
-        if (existing.exists()) {
-            await deleteDoc(likeRef);
-            await updateDoc(postRef, { likes_count: increment(-1) });
-            return false;
-        }
-        await setDoc(likeRef, { created_at: serverTimestamp() });
-        await updateDoc(postRef, { likes_count: increment(1) });
-        return true;
+        const result = await socialApi<{ liked: boolean }>(`/posts/${postId}/likes/toggle`, { method: 'POST' });
+        return result.liked;
     },
 };
 
@@ -511,34 +480,18 @@ export const likesService = {
 export const commentsService = {
 
     create: async (postId: string, content: string, isAnonymous = false) => {
-        const user = requireUser();
         const cleanContent = content.trim();
         if (!cleanContent) throw new Error('Reply cannot be empty.');
         if (cleanContent.length > 500) throw new Error('Reply must be 500 characters or fewer.');
-        const author = await profileSnapshot(user.uid);
-
-        const ref = await addDoc(collection(db, 'posts', postId, 'comments'), {
-            user_id: user.uid,
-            post_id: postId,
-            content: cleanContent,
-            is_anonymous: isAnonymous,
-            created_at: serverTimestamp(),
-            user: author,
-        });
-
-        await updateDoc(doc(db, 'posts', postId), { comments_count: increment(1) });
-        return row(await getDoc(ref));
+        return socialApi(`/posts/${postId}/comments`, { method: 'POST', body: JSON.stringify({ content: cleanContent, isAnonymous }) });
     },
 
     getByPost: async (postId: string) => {
-        const q = query(collection(db, 'posts', postId, 'comments'), orderBy('created_at', 'asc'));
-        const snaps = await getDocs(q);
-        return snaps.docs.map(row);
+        return socialApi(`/posts/${postId}/comments`);
     },
 
     delete: async (commentId: string, postId: string) => {
-        await deleteDoc(doc(db, 'posts', postId, 'comments', commentId));
-        await updateDoc(doc(db, 'posts', postId), { comments_count: increment(-1) });
+        await socialApi(`/posts/${postId}/comments/${commentId}`, { method: 'DELETE' });
     },
 };
 
@@ -622,108 +575,42 @@ export const messagesService = {
         if (!receiverId || receiverId === me.uid) throw new Error('You cannot message this account.');
         if (!cleanContent) throw new Error('Message cannot be empty.');
         if (cleanContent.length > 1000) throw new Error('Message must be 1000 characters or fewer.');
-        const cid = convId(me.uid, receiverId);
-
-        // conversation doc pehli baar me bana do
-        await setDoc(doc(db, 'conversations', cid), {
-            participants: [me.uid, receiverId].sort(),
-            last_message: cleanContent,
-            updated_at: serverTimestamp(),
-        }, { merge: true });
-
-        const ref = await addDoc(collection(db, 'conversations', cid, 'messages'), {
-            sender_id: me.uid,
-            receiver_id: receiverId,
-            content: cleanContent,
-            is_read: false,
-            created_at: serverTimestamp(),
-        });
-
-        return row(await getDoc(ref));
+        return socialApi('/messages', { method: 'POST', body: JSON.stringify({ receiverId, content: cleanContent }) });
     },
 
     getConversations: async () => {
-        const me = requireUser();
-
-        const convs = await getDocs(query(
-            collection(db, 'conversations'),
-            where('participants', 'array-contains', me.uid),
-        ));
-
-        const out = await Promise.all(convs.docs.map(async (c) => {
-            const participants: string[] = (c.data() as any).participants || [];
-            const otherId = participants.find(p => p !== me.uid);
-            if (!otherId) return null;
-
-            const otherSnap = await getDoc(doc(db, 'profiles', otherId));
-            const otherUser = otherSnap.exists() ? row(otherSnap) : { id: otherId };
-
-            const lastSnaps = await getDocs(query(
-                collection(db, 'conversations', c.id, 'messages'),
-                orderBy('created_at', 'desc'),
-                fsLimit(1),
-            ));
-            const lastMessage = lastSnaps.docs[0] ? row(lastSnaps.docs[0]) : null;
-
-            const unreadSnaps = await getDocs(query(
-                collection(db, 'conversations', c.id, 'messages'),
-                where('receiver_id', '==', me.uid),
-                where('is_read', '==', false),
-            ));
-
-            return { otherUser, lastMessage, unreadCount: unreadSnaps.size };
-        }));
-
-        return out
-            .filter(Boolean)
-            .sort((a: any, b: any) =>
-                String(b?.lastMessage?.created_at ?? '').localeCompare(String(a?.lastMessage?.created_at ?? '')));
+        return socialApi('/messages');
     },
 
     getWithUser: async (userId: string) => {
-        const me = requireUser();
-        const cid = convId(me.uid, userId);
-
-        const snaps = await getDocs(query(
-            collection(db, 'conversations', cid, 'messages'),
-            orderBy('created_at', 'asc'),
-        ));
-        const messages = snaps.docs.map(row);
-
-        // jo mere liye aaye aur unread the, unhe read mark karo
-        const batch = writeBatch(db);
-        let n = 0;
-        snaps.docs.forEach(s => {
-            const d: any = s.data();
-            if (d.receiver_id === me.uid && !d.is_read) { batch.update(s.ref, { is_read: true }); n++; }
-        });
-        if (n) await batch.commit();
-
-        return messages;
+        return socialApi(`/messages/${userId}`);
     },
 
     markRead: async (messageId: string, userId: string) => {
-        const me = requireUser();
-        const cid = convId(me.uid, userId);
-        await updateDoc(doc(db, 'conversations', cid, 'messages', messageId), { is_read: true });
+        void userId;
+        await socialApi(`/messages/${messageId}/read`, { method: 'PATCH' });
     },
 
     /** Naye messages par live callback. Return value me .unsubscribe() milta hai. */
     subscribeToMessages: (userId: string, callback: (msg: any) => void) => {
-        const me = currentUser();
-        if (!me) return { unsubscribe: () => { } };
-
-        const cid = convId(me.uid, userId);
-        const unsub = onSnapshot(
-            query(collection(db, 'conversations', cid, 'messages'), orderBy('created_at', 'desc'), fsLimit(1)),
-            (snap) => {
-                snap.docChanges().forEach(ch => {
-                    if (ch.type === 'added') callback({ new: row(ch.doc), ...row(ch.doc) });
-                });
-            },
-            (err) => console.warn('[DM] subscribe error:', err?.message),
-        );
-        return { unsubscribe: unsub };
+        let lastMessageId: string | null = null;
+        let active = true;
+        const poll = async () => {
+            if (!active) return;
+            try {
+                const messages = await messagesService.getWithUser(userId);
+                const latest = messages[messages.length - 1];
+                if (latest?.id && latest.id !== lastMessageId) {
+                    if (lastMessageId) callback({ new: latest, ...latest });
+                    lastMessageId = latest.id;
+                }
+            } catch (error) {
+                console.warn('[DM] social API subscription error:', error);
+            }
+        };
+        void poll();
+        const timer = setInterval(poll, 5000);
+        return { unsubscribe: () => { active = false; clearInterval(timer); } };
     },
 };
 
@@ -734,69 +621,25 @@ export const messagesService = {
 export const communitiesService = {
 
     create: async (name: string, description: string, category: string, isPrivate = false) => {
-        const me = requireUser();
-
-        const ref = await addDoc(collection(db, 'communities'), {
-            name,
-            description,
-            category,
-            is_private: isPrivate,
-            creator_id: me.uid,
-            member_count: 1,
-            created_at: serverTimestamp(),
-        });
-
-        await setDoc(doc(db, 'communities', ref.id, 'members', me.uid), {
-            role: 'admin',
-            joined_at: serverTimestamp(),
-        });
-
-        return row(await getDoc(ref));
+        return socialApi('/communities', { method: 'POST', body: JSON.stringify({ name, description, category, isPrivate }) });
     },
 
     getAll: async (category?: string) => {
-        const base = collection(db, 'communities');
-        const q = category
-            ? query(base, where('category', '==', category), orderBy('member_count', 'desc'))
-            : query(base, orderBy('member_count', 'desc'));
-        const snaps = await getDocs(q);
-        return snaps.docs.map(row);
+        return socialApi(`/communities${category ? `?category=${encodeURIComponent(category)}` : ''}`);
     },
 
     join: async (communityId: string) => {
-        const me = requireUser();
-        const memberRef = doc(db, 'communities', communityId, 'members', me.uid);
-        const existing = await getDoc(memberRef);
-        if (existing.exists()) return false;
-
-        await setDoc(memberRef, {
-            role: 'member',
-            joined_at: serverTimestamp(),
-        });
-        await updateDoc(doc(db, 'communities', communityId), { member_count: increment(1) });
-        return true;
+        const result = await socialApi<{ joined: boolean }>(`/communities/${communityId}/join`, { method: 'POST' });
+        return result.joined;
     },
 
     leave: async (communityId: string) => {
-        const me = requireUser();
-        const memberRef = doc(db, 'communities', communityId, 'members', me.uid);
-        const existing = await getDoc(memberRef);
-        if (!existing.exists()) return false;
-
-        await deleteDoc(memberRef);
-        await updateDoc(doc(db, 'communities', communityId), { member_count: increment(-1) });
+        await socialApi(`/communities/${communityId}/membership`, { method: 'DELETE' });
         return true;
     },
 
     getPosts: async (communityId: string, limit = 20) => {
-        const q = query(
-            collection(db, 'posts'),
-            where('community_id', '==', communityId),
-            orderBy('created_at', 'desc'),
-            fsLimit(limit),
-        );
-        const snaps = await getDocs(q);
-        return snaps.docs.map(row);
+        return socialApi(`/posts?communityId=${encodeURIComponent(communityId)}&limit=${limit}`);
     },
 };
 

@@ -19,10 +19,10 @@ import { COLORS } from '../../constants';
 import { Feather } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import Constants from 'expo-constants';
+const authBackground = require('../../assets/krishna_temple_bg.png');
 
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
-import { makeRedirectUri } from 'expo-auth-session';
 
 // Ensure WebBrowser sessions are handled
 WebBrowser.maybeCompleteAuthSession();
@@ -83,7 +83,7 @@ export const AuthScreen = () => {
             Alert.alert(
                 'Taking too long',
                 isGoogleFlow
-                    ? 'Google sign-in did not return to the app in time. If you are using Expo Go, the custom scheme redirect may not work. Please run an Android dev build (e.g. `expo run:android`) and ensure `dharmaai://auth-callback` is registered in Google + Supabase.'
+                    ? 'Google sign-in did not return to the app in time. In Firebase Console, enable Google sign-in and add the Android app package com.dharmaai.innerbalance with the SHA-1 certificate from this Play Store build. Then verify that dharmaai://auth-callback is registered for the Google OAuth client and rebuild the app.'
                     : 'The authentication is taking longer than expected. Please check your internet connection and try again.',
                 [{ text: 'OK' }]
             );
@@ -114,6 +114,7 @@ export const AuthScreen = () => {
             const hasAuthParams = !!url && (
                 url.includes('auth-callback') ||
                 url.includes('code=') ||
+                url.includes('id_token=') ||
                 url.includes('access_token=') ||
                 url.includes('refresh_token=')
             );
@@ -151,11 +152,9 @@ export const AuthScreen = () => {
     };
 
     const getNativeRedirectUrl = () => {
-        return makeRedirectUri({
-            preferLocalhost: false,
-            scheme: 'dharmaai',
-            path: 'auth-callback',
-        });
+        // Keep the production URI stable. In a standalone Play Store build,
+        // this must match the Android intent filter and OAuth provider config.
+        return 'dharmaai://auth-callback';
     };
 
     const handleGoogleSignIn = async () => {
@@ -210,7 +209,7 @@ export const AuthScreen = () => {
                 // 1) Register deep-link listener BEFORE opening the browser
                 startOAuthDeepLinkListener();
 
-                // 2) Get OAuth URL from Supabase
+                // 2) Get the Google OAuth URL used to obtain a Firebase credential.
                 const result = await signInWithGoogle(redirectUrl);
 
                 if (!result?.url) {
@@ -269,6 +268,7 @@ export const AuthScreen = () => {
                     const hasAuthParams = !!maybeInitialUrl && (
                         maybeInitialUrl.includes('auth-callback') ||
                         maybeInitialUrl.includes('code=') ||
+                        maybeInitialUrl.includes('id_token=') ||
                         maybeInitialUrl.includes('access_token=') ||
                         maybeInitialUrl.includes('refresh_token=')
                     );
@@ -300,8 +300,8 @@ export const AuthScreen = () => {
                 Alert.alert(
                     'Sign-In Issue',
                     isExpoGo
-                        ? `The app did not receive the callback redirect in Expo Go. Please add this exact URL in Supabase Dashboard → Authentication → URL Configuration → Redirect URLs:\n\n${redirectUrl}\n\nFor stable Google OAuth on Android, use a development build (expo run:android) so the app uses:\n\ndharmaai://auth-callback`
-                        : `The app did not receive the callback redirect. Please make sure this URL is listed in Supabase Dashboard → Authentication → URL Configuration → Redirect URLs:\n\n${redirectUrl}`
+                        ? `The app did not receive the callback redirect in Expo Go. Use an Android build and register this exact URL with the Google OAuth client:\n\n${redirectUrl}`
+                        : `The app did not receive the callback redirect. In Firebase Console, enable Google sign-in and add the Android package com.dharmaai.innerbalance with the SHA-1 certificate from this Play Store build. Also register this exact redirect URL with the Google OAuth client, then rebuild the Android app:\n\n${redirectUrl}`
                 );
             }
         } catch (error: any) {
@@ -379,7 +379,7 @@ export const AuthScreen = () => {
 
     return (
         <ImageBackground
-            source={{ uri: 'https://mtiltptnumjoaibgpvzb.supabase.co/storage/v1/object/public/assets/lotusReflection.jpeg' }}
+            source={authBackground}
             style={styles.container}
             resizeMode="cover"
         >

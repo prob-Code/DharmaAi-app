@@ -101,7 +101,12 @@ export async function getSarvamTTS(
         }
 
         const data = await response.json();
-        return data.audios?.[0] || null;
+        const audio = data?.audios?.[0];
+        if (typeof audio !== 'string' || audio.length === 0) {
+            console.error("❌ Sarvam AI TTS returned no audio:", data);
+            return null;
+        }
+        return audio;
         
     } catch (e) {
         console.error("❌ Sarvam TTS Exception:", e);

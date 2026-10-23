@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "242606699113",
+    "project_id": "sarrthi-d81d3",
+    "storage_bucket": "sarrthi-d81d3.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:242606699113:android:4e9b6006403f665121e8f8",
+        "android_client_info": {
+          "package_name": "com.dharmaai.innerbalance"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "242606699113-scp4ikjbrj8t0ihdc6df7dhluq2dagi5.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCsQFQv5DnM2GNGom4zn61Kn1lngqH-Ono"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "242606699113-scp4ikjbrj8t0ihdc6df7dhluq2dagi5.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

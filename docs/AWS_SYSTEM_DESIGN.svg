@@ -1,0 +1,199 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1180" viewBox="0 0 1600 1180" role="img" aria-labelledby="title desc">
+  <title id="title">FRA Atlas AWS system design</title>
+  <desc id="desc">Architecture diagram showing web and Android clients, CloudFront and WAF, Cognito, API Gateway, Lambda services, Aurora PostgreSQL with PostGIS, S3 document storage, Amazon Location, asynchronous workers, and observability.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0" stop-color="#f7fbff"/>
+      <stop offset="1" stop-color="#eef4fb"/>
+    </linearGradient>
+    <linearGradient id="aws" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#fff4e6"/>
+      <stop offset="1" stop-color="#ffe1bd"/>
+    </linearGradient>
+    <linearGradient id="data" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#e8f7ee"/>
+      <stop offset="1" stop-color="#ccefdc"/>
+    </linearGradient>
+    <linearGradient id="security" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#f1ecff"/>
+      <stop offset="1" stop-color="#dfd2ff"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#5b6b7a" flood-opacity="0.18"/>
+    </filter>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#53708d"/>
+    </marker>
+    <marker id="arrow-orange" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#d97706"/>
+    </marker>
+    <style>
+      .title{font:700 30px Arial,sans-serif;fill:#172b4d}
+      .subtitle{font:400 15px Arial,sans-serif;fill:#52677e}
+      .layer{font:700 16px Arial,sans-serif;fill:#24435f;letter-spacing:.4px}
+      .box-title{font:700 17px Arial,sans-serif;fill:#172b4d}
+      .box-text{font:400 13px Arial,sans-serif;fill:#334e68}
+      .small{font:400 12px Arial,sans-serif;fill:#52677e}
+      .legend{font:400 12px Arial,sans-serif;fill:#334e68}
+      .node{stroke:#9eb3c7;stroke-width:1.5;rx:14}
+      .aws-node{fill:url(#aws)}
+      .data-node{fill:url(#data)}
+      .sec-node{fill:url(#security)}
+      .client-node{fill:#ffffff}
+      .line{stroke:#53708d;stroke-width:2.5;fill:none;marker-end:url(#arrow)}
+      .line-dash{stroke:#53708d;stroke-width:2;stroke-dasharray:8 7;fill:none;marker-end:url(#arrow)}
+      .line-orange{stroke:#d97706;stroke-width:2.5;fill:none;marker-end:url(#arrow-orange)}
+    </style>
+  </defs>
+
+  <rect width="1600" height="1180" fill="url(#bg)"/>
+  <text x="70" y="58" class="title">FRA Atlas / Adi-bandhu — AWS system design</text>
+  <text x="70" y="87" class="subtitle">Secure, auditable, role-based claims platform for web, PWA and Android clients</text>
+
+  <!-- Layer bands -->
+  <rect x="55" y="115" width="1490" height="126" rx="20" fill="#eaf2fa" stroke="#c7d8e8"/>
+  <text x="80" y="145" class="layer">CLIENTS</text>
+  <rect x="55" y="263" width="1490" height="168" rx="20" fill="#fffaf3" stroke="#efd5af"/>
+  <text x="80" y="293" class="layer">EDGE AND IDENTITY</text>
+  <rect x="55" y="452" width="1490" height="232" rx="20" fill="#fffdf8" stroke="#ead9bd"/>
+  <text x="80" y="482" class="layer">APPLICATION SERVICES</text>
+  <rect x="55" y="705" width="1490" height="225" rx="20" fill="#f2fbf5" stroke="#bfe2ca"/>
+  <text x="80" y="735" class="layer">DATA AND INTEGRATION</text>
+  <rect x="55" y="950" width="1490" height="150" rx="20" fill="#f8f6ff" stroke="#d5c8ef"/>
+  <text x="80" y="980" class="layer">SECURITY, OPERATIONS AND DELIVERY</text>
+
+  <!-- Clients -->
+  <g filter="url(#shadow)">
+    <rect x="135" y="163" width="250" height="58" class="node client-node"/>
+    <text x="260" y="188" text-anchor="middle" class="box-title">Web / PWA</text>
+    <text x="260" y="208" text-anchor="middle" class="box-text">React + Vite</text>
+    <rect x="515" y="163" width="250" height="58" class="node client-node"/>
+    <text x="640" y="188" text-anchor="middle" class="box-title">Android app</text>
+    <text x="640" y="208" text-anchor="middle" class="box-text">Capacitor or TWA</text>
+    <rect x="895" y="163" width="250" height="58" class="node client-node"/>
+    <text x="1020" y="188" text-anchor="middle" class="box-title">Field devices</text>
+    <text x="1020" y="208" text-anchor="middle" class="box-text">camera, GPS, offline queue</text>
+    <rect x="1275" y="163" width="190" height="58" class="node client-node"/>
+    <text x="1370" y="188" text-anchor="middle" class="box-title">Public viewer</text>
+    <text x="1370" y="208" text-anchor="middle" class="box-text">redacted map</text>
+  </g>
+
+  <!-- Edge -->
+  <g filter="url(#shadow)">
+    <rect x="120" y="320" width="245" height="70" class="node aws-node"/>
+    <text x="242" y="348" text-anchor="middle" class="box-title">Route 53 + ACM</text>
+    <text x="242" y="370" text-anchor="middle" class="box-text">DNS + TLS certificates</text>
+    <rect x="460" y="320" width="300" height="70" class="node aws-node"/>
+    <text x="610" y="348" text-anchor="middle" class="box-title">CloudFront + WAF</text>
+    <text x="610" y="370" text-anchor="middle" class="box-text">edge cache, rate limits, CSP</text>
+    <rect x="855" y="320" width="260" height="70" class="node aws-node"/>
+    <text x="985" y="348" text-anchor="middle" class="box-title">S3 web bucket</text>
+    <text x="985" y="370" text-anchor="middle" class="box-text">private React build + OAC</text>
+    <rect x="1210" y="320" width="250" height="70" class="node sec-node"/>
+    <text x="1335" y="348" text-anchor="middle" class="box-title">Cognito User Pool</text>
+    <text x="1335" y="370" text-anchor="middle" class="box-text">email, OAuth, MFA, recovery</text>
+  </g>
+
+  <!-- App services -->
+  <g filter="url(#shadow)">
+    <rect x="105" y="510" width="245" height="102" class="node aws-node"/>
+    <text x="227" y="541" text-anchor="middle" class="box-title">API Gateway HTTP API</text>
+    <text x="227" y="565" text-anchor="middle" class="box-text">/v1 routes</text>
+    <text x="227" y="586" text-anchor="middle" class="box-text">JWT authorizer + throttling</text>
+    <rect x="390" y="510" width="220" height="102" class="node aws-node"/>
+    <text x="500" y="541" text-anchor="middle" class="box-title">Auth / profile</text>
+    <text x="500" y="565" text-anchor="middle" class="box-text">onboarding, memberships</text>
+    <text x="500" y="586" text-anchor="middle" class="box-text">permissions + audit</text>
+    <rect x="650" y="510" width="245" height="102" class="node aws-node"/>
+    <text x="772" y="541" text-anchor="middle" class="box-title">Claims workflow</text>
+    <text x="772" y="565" text-anchor="middle" class="box-text">draft, submit, assign</text>
+    <text x="772" y="586" text-anchor="middle" class="box-text">verify, decide, publish</text>
+    <rect x="935" y="510" width="220" height="102" class="node aws-node"/>
+    <text x="1045" y="541" text-anchor="middle" class="box-title">Committee + DSS</text>
+    <text x="1045" y="565" text-anchor="middle" class="box-text">quorum, votes, decisions</text>
+    <text x="1045" y="586" text-anchor="middle" class="box-text">versioned recommendations</text>
+    <rect x="1195" y="510" width="270" height="102" class="node aws-node"/>
+    <text x="1330" y="541" text-anchor="middle" class="box-title">Document + GIS API</text>
+    <text x="1330" y="565" text-anchor="middle" class="box-text">signed URLs, redaction</text>
+    <text x="1330" y="586" text-anchor="middle" class="box-text">PostGIS + Location proxy</text>
+  </g>
+  <text x="790" y="655" text-anchor="middle" class="small">Each service is an AWS Lambda handler or small service module with schema validation, authorization and request IDs.</text>
+
+  <!-- Data and integration -->
+  <g filter="url(#shadow)">
+    <rect x="115" y="768" width="285" height="105" class="node data-node"/>
+    <text x="257" y="799" text-anchor="middle" class="box-title">Aurora PostgreSQL</text>
+    <text x="257" y="823" text-anchor="middle" class="box-text">claims, roles, workflow</text>
+    <text x="257" y="844" text-anchor="middle" class="box-text">PostGIS + RLS defense-in-depth</text>
+    <rect x="455" y="768" width="215" height="105" class="node data-node"/>
+    <text x="562" y="799" text-anchor="middle" class="box-title">RDS Proxy</text>
+    <text x="562" y="823" text-anchor="middle" class="box-text">Lambda connection pooling</text>
+    <text x="562" y="844" text-anchor="middle" class="box-text">private subnets</text>
+    <rect x="725" y="768" width="260" height="105" class="node data-node"/>
+    <text x="855" y="799" text-anchor="middle" class="box-title">S3 private documents</text>
+    <text x="855" y="823" text-anchor="middle" class="box-text">quarantine, scan, retention</text>
+    <text x="855" y="844" text-anchor="middle" class="box-text">SSE-KMS + signed URLs</text>
+    <rect x="1040" y="768" width="235" height="105" class="node data-node"/>
+    <text x="1157" y="799" text-anchor="middle" class="box-title">SQS + EventBridge</text>
+    <text x="1157" y="823" text-anchor="middle" class="box-text">outbox, retries, DLQs</text>
+    <text x="1157" y="844" text-anchor="middle" class="box-text">notifications + scan jobs</text>
+    <rect x="1330" y="768" width="170" height="105" class="node data-node"/>
+    <text x="1415" y="799" text-anchor="middle" class="box-title">Amazon Location</text>
+    <text x="1415" y="823" text-anchor="middle" class="box-text">maps, places</text>
+    <text x="1415" y="844" text-anchor="middle" class="box-text">geocoding</text>
+  </g>
+
+  <!-- Ops -->
+  <g filter="url(#shadow)">
+    <rect x="115" y="1012" width="230" height="62" class="node sec-node"/>
+    <text x="230" y="1039" text-anchor="middle" class="box-title">Secrets Manager + KMS</text>
+    <text x="230" y="1059" text-anchor="middle" class="box-text">secrets, keys, rotation</text>
+    <rect x="405" y="1012" width="230" height="62" class="node sec-node"/>
+    <text x="520" y="1039" text-anchor="middle" class="box-title">CloudWatch + X-Ray</text>
+    <text x="520" y="1059" text-anchor="middle" class="box-text">logs, traces, alarms</text>
+    <rect x="695" y="1012" width="230" height="62" class="node sec-node"/>
+    <text x="810" y="1039" text-anchor="middle" class="box-title">CloudTrail</text>
+    <text x="810" y="1059" text-anchor="middle" class="box-text">AWS control-plane audit</text>
+    <rect x="985" y="1012" width="230" height="62" class="node sec-node"/>
+    <text x="1100" y="1039" text-anchor="middle" class="box-title">CDK + GitHub OIDC</text>
+    <text x="1100" y="1059" text-anchor="middle" class="box-text">IaC and keyless CI/CD</text>
+    <rect x="1275" y="1012" width="225" height="62" class="node sec-node"/>
+    <text x="1387" y="1039" text-anchor="middle" class="box-title">SES / SNS / FCM</text>
+    <text x="1387" y="1059" text-anchor="middle" class="box-text">email and push delivery</text>
+  </g>
+
+  <!-- Primary request flows -->
+  <path d="M260 221 L242 320" class="line"/>
+  <path d="M640 221 L610 320" class="line"/>
+  <path d="M1020 221 L610 320" class="line-dash"/>
+  <path d="M1370 221 L1335 320" class="line"/>
+  <path d="M242 390 L227 510" class="line"/>
+  <path d="M610 390 L227 510" class="line-dash"/>
+  <path d="M1335 390 L227 510" class="line-dash"/>
+  <path d="M1335 390 L1330 510" class="line"/>
+  <path d="M227 612 L257 768" class="line"/>
+  <path d="M500 612 L257 768" class="line-dash"/>
+  <path d="M772 612 L257 768" class="line"/>
+  <path d="M1045 612 L257 768" class="line"/>
+  <path d="M1330 612 L855 768" class="line"/>
+  <path d="M1330 612 L1415 768" class="line"/>
+  <path d="M772 612 L1157 768" class="line-orange"/>
+  <path d="M1045 612 L1157 768" class="line-orange"/>
+  <path d="M1330 612 L1157 768" class="line-orange"/>
+  <path d="M562 768 L257 768" class="line"/>
+  <path d="M1157 873 L1387 1012" class="line-orange"/>
+
+  <!-- Security/ops dotted associations -->
+  <path d="M230 1012 L500 612" class="line-dash"/>
+  <path d="M230 1012 L257 873" class="line-dash"/>
+  <path d="M520 1012 L772 612" class="line-dash"/>
+  <path d="M810 1012 L257 873" class="line-dash"/>
+  <path d="M1100 1012 L610 390" class="line-dash"/>
+
+  <!-- Legend -->
+  <rect x="1120" y="1120" width="390" height="36" rx="10" fill="#ffffff" stroke="#c7d8e8"/>
+  <line x1="1140" y1="1138" x2="1180" y2="1138" class="line"/>
+  <text x="1192" y="1142" class="legend">synchronous request / response</text>
+  <line x1="1330" y1="1138" x2="1370" y2="1138" class="line-orange"/>
+  <text x="1382" y="1142" class="legend">async event / worker</text>
+</svg>

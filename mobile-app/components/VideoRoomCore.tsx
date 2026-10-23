@@ -6,7 +6,7 @@ import { AudioSession, LiveKitRoom, TrackReferenceOrPlaceholder, VideoTrack, isT
 import { Track } from 'livekit-client';
 import { useTheme } from '../context/ThemeContext';
 import { Config } from '../config';
-import { getDeviceId } from '../services/ragAuth';
+import { getIdToken } from '../services/firebase';
 
 interface VideoRoomProps {
     roomName: string;
@@ -115,11 +115,15 @@ export const VideoRoomCore: React.FC<VideoRoomProps> = ({ roomName, visible, onC
         setError(null);
         setJoinInfo(null);
         try {
-            const identity = await getDeviceId();
+            const token = await getIdToken();
+            if (!token) throw new Error('You must be signed in to start a video call.');
             const res = await fetch(`${Config.BACKEND_URL}/api/livekit/token`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ roomName: cleanRoom, identity, name: displayName }),
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${token}`,
+                },
+                body: JSON.stringify({ roomName: cleanRoom, name: displayName }),
             });
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const data = await res.json();

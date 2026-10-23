@@ -299,7 +299,7 @@ UI & Animation:
 
 Media:
 - expo-av (Audio/Video)
-- expo-speech (Text-to-Speech)
+- Sarvam Bulbul v3 via the backend (Text-to-Speech)
 - react-native-youtube-iframe (Video embedding)
 
 Storage:

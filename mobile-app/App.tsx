@@ -58,6 +58,7 @@ const AppContent = () => {
         (
           event.url.includes('auth-callback') ||
           event.url.includes('code=') ||
+          event.url.includes('id_token=') ||
           event.url.includes('access_token=') ||
           event.url.includes('refresh_token=')
         );

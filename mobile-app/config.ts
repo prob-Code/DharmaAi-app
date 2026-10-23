@@ -4,11 +4,16 @@ import { Platform } from 'react-native';
 // Configure your API keys through Expo public env vars.
 // In production, these should be set in EAS Secrets or .env file.
 // NEVER commit actual API keys to source control.
-const configuredBackendUrl = (process.env.EXPO_PUBLIC_BACKEND_URL ?? "").replace(/\/+$/, "");
-// Android emulator uses 10.0.2.2 to reach the development machine. Physical
-// devices should use the computer's LAN address or a deployed HTTPS backend.
+const configuredBackendUrl = (
+    process.env.EXPO_PUBLIC_BACKEND_URL
+    ?? "https://dharmaai-app-blgs.onrender.com"
+).replace(/\/+$/, "");
+const DEPLOYED_BACKEND_URL = "https://dharmaai-app-blgs.onrender.com";
+// Native builds always use the deployed backend. This prevents an EAS build
+// from embedding a developer computer's LAN address into an installable app.
+// The environment override remains available for web/local development.
 const BACKEND_URL = Platform.OS === 'android'
-    ? configuredBackendUrl.replace('://localhost', '://10.0.2.2').replace('://127.0.0.1', '://10.0.2.2')
+    ? DEPLOYED_BACKEND_URL
     : configuredBackendUrl;
 
 // --- Chat model (RagGita on AWS Lambda Function URL) ---
@@ -33,7 +38,8 @@ const FIREBASE_CONFIG = {
 // Google OAuth Web client ID — Firebase Console → Authentication →
 // Sign-in method → Google → "Web SDK configuration" me milta hai.
 // Iske bina Google sign-in nahi chalega.
-const GOOGLE_WEB_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID ?? "";
+const GOOGLE_WEB_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID
+    ?? "242606699113-scp4ikjbrj8t0ihdc6df7dhluq2dagi5.apps.googleusercontent.com";
 
 export const Config = {
     GOOGLE_WEB_CLIENT_ID,
