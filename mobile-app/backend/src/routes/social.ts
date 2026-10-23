@@ -21,6 +21,17 @@ async function ensureProfile(req: Express.Request) {
   if (error) throw error;
 }
 
+async function getProfiles(store: ReturnType<typeof getSocialStore>, userIds: string[]) {
+  const ids = [...new Set(userIds)].filter(Boolean);
+  if (!ids.length) return new Map<string, any>();
+  const { data, error } = await store
+    .from("profiles")
+    .select("id, username, display_name, avatar_url")
+    .in("id", ids);
+  if (error) throw error;
+  return new Map((data ?? []).map((profile) => [profile.id, profile]));
+}
+
 socialRouter.get("/posts", async (req, res, next) => {
   try {
     await ensureProfile(req);
@@ -28,7 +39,7 @@ socialRouter.get("/posts", async (req, res, next) => {
     const limit = Math.min(Number(req.query.limit) || 20, 50);
     let postsQuery = store
       .from("posts")
-      .select("*, profiles!posts_user_id_fkey(id, username, display_name, avatar_url)")
+      .select("*")
       .order("created_at", { ascending: false })
       .limit(limit);
     if (typeof req.query.communityId === "string" && req.query.communityId) {
@@ -36,6 +47,7 @@ socialRouter.get("/posts", async (req, res, next) => {
     }
     const { data, error } = await postsQuery;
     if (error) throw error;
+    const profiles = await getProfiles(store, (data ?? []).map((post) => post.user_id));
     const postIds = (data ?? []).map((post) => post.id);
     const { data: likes, error: likesError } = await store
       .from("likes")
@@ -44,7 +56,7 @@ socialRouter.get("/posts", async (req, res, next) => {
       .in("post_id", postIds.length ? postIds : ["00000000-0000-0000-0000-000000000000"]);
     if (likesError) throw likesError;
     const liked = new Set((likes ?? []).map((like) => like.post_id));
-    res.json((data ?? []).map((post) => ({ ...post, user: post.profiles, isLiked: liked.has(post.id), profiles: undefined })));
+    res.json((data ?? []).map((post) => ({ ...post, user: profiles.get(post.user_id) ?? null, isLiked: liked.has(post.id) })));
   } catch (error) {
     next(error);
   }
@@ -58,12 +70,14 @@ socialRouter.post("/posts", async (req, res, next) => {
       res.status(400).json({ error: "Content is required and must be 300 characters or fewer." });
       return;
     }
-    const { data, error } = await getSocialStore().from("posts").insert({
+    const store = getSocialStore();
+    const { data, error } = await store.from("posts").insert({
       user_id: uid(req), content, mood_tag: req.body.moodTag ?? null,
       is_anonymous: Boolean(req.body.isAnonymous), image_url: req.body.imageUrl ?? null
-    }).select("*, profiles!posts_user_id_fkey(id, username, display_name, avatar_url)").single();
+    }).select("*").single();
     if (error) throw error;
-    res.status(201).json({ ...data, user: data.profiles, isLiked: false, profiles: undefined });
+    const profiles = await getProfiles(store, [data.user_id]);
+    res.status(201).json({ ...data, user: profiles.get(data.user_id) ?? null, isLiked: false });
   } catch (error) {
     next(error);
   }

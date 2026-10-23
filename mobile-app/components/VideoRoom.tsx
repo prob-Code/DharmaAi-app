@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { Component, ErrorInfo, useEffect, useState } from 'react';
 import { NativeModules, View, Text, Modal, TouchableOpacity, StyleSheet } from 'react-native';
 
 type CoreProps = React.ComponentProps<typeof import('./VideoRoomCore').VideoRoomCore>;
@@ -6,6 +6,25 @@ type CoreComponent = React.ComponentType<CoreProps>;
 
 let cachedCore: CoreComponent | null = null;
 let loadError: string | null = null;
+
+class CallErrorBoundary extends Component<
+    { children: React.ReactNode; onError: (message: string) => void },
+    { hasError: boolean }
+> {
+    state = { hasError: false };
+
+    static getDerivedStateFromError() {
+        return { hasError: true };
+    }
+
+    componentDidCatch(error: Error, _info: ErrorInfo) {
+        this.props.onError(error.message);
+    }
+
+    render() {
+        return this.state.hasError ? null : this.props.children;
+    }
+}
 
 // LiveKit uses a native WebRTC module that Expo Go does not include. Importing it at
 // startup crashes the whole app, so it is only loaded the first time a call is opened.
@@ -41,7 +60,18 @@ export const VideoRoom: React.FC<CoreProps> = (props) => {
         }
     }, [props.visible, Core]);
 
-    if (Core) return <Core {...props} />;
+    if (Core) {
+        return (
+            <CallErrorBoundary
+                onError={(message) => {
+                    setInitializationError(message);
+                    setCore(null);
+                }}
+            >
+                <Core {...props} />
+            </CallErrorBoundary>
+        );
+    }
     if (!props.visible) return null;
 
     return (
