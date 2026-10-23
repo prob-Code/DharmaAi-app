@@ -41,6 +41,9 @@ ttsRouter.post("/sarvam", async (req, res, next) => {
       });
 
       const text = await response.text();
+      if (!response.ok) {
+        console.error("Sarvam TTS provider error:", response.status, text);
+      }
       res.status(response.status).type("application/json").send(text);
     } catch (error: any) {
       if (error?.name === "AbortError") {

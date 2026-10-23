@@ -3,11 +3,11 @@ import rateLimit from "express-rate-limit";
 import { AccessToken } from "livekit-server-sdk";
 import { z } from "zod";
 import { env } from "../config/env";
+import { requireFirebaseUser } from "../middleware/firebaseAuth";
 
 // Mints short-lived LiveKit join tokens. The API secret never leaves the server.
 const bodySchema = z.object({
   roomName: z.string().min(1).max(100),
-  identity: z.string().min(1).max(100),
   name: z.string().max(60).optional()
 });
 
@@ -16,6 +16,7 @@ const clean = (value: string, max: number) =>
   value.toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, max);
 
 export const livekitRouter = Router();
+livekitRouter.use(requireFirebaseUser);
 livekitRouter.use(rateLimit({
   windowMs: 60 * 1000,
   max: 20,
@@ -31,7 +32,7 @@ livekitRouter.post("/token", async (req, res, next) => {
 
     const parsed = bodySchema.parse(req.body);
     const roomName = clean(parsed.roomName, 64);
-    const identity = clean(parsed.identity, 64);
+    const identity = clean(req.firebaseUser?.uid || "", 64);
     if (!roomName || !identity) {
       return res.status(400).json({ error: "Invalid roomName or identity" });
     }

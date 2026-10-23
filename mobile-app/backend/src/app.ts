@@ -11,6 +11,7 @@ import { youtubeRouter } from "./routes/youtube";
 import { stressRouter } from "./routes/stress";
 import { ttsRouter } from "./routes/tts";
 import { livekitRouter } from "./routes/livekit";
+import { socialRouter } from "./routes/social";
 
 export function createApp() {
   const app = express();
@@ -39,6 +40,7 @@ export function createApp() {
   app.use("/api/stress", stressRouter);
   app.use("/api/tts", ttsRouter);
   app.use("/api/livekit", livekitRouter);
+  app.use("/api/social", socialRouter);
 
   app.use(notFound);
   app.use(errorHandler);

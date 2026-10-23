@@ -9,6 +9,7 @@ Production-ready TypeScript Express backend for the mobile app.
 - AI chat proxy endpoint (Groq)
 - Stress analysis and Sarvam TTS proxy endpoints
 - Socket.IO realtime server for live events
+- Firebase-authenticated Supabase social data bridge
 - Input validation with Zod
 - Security middleware (Helmet, CORS, rate-limiting)
 - Centralized error handling
@@ -27,6 +28,8 @@ cp .env.example .env
 - `GROQ_API_KEY` (optional if AI route not used)
 - `SARVAM_API_KEY` and `STRESS_API_KEY` (optional if those routes are not used)
 - `CORS_ORIGIN` (required; use the deployed app origin, not `*` in production)
+- `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, and `FIREBASE_PRIVATE_KEY` for Firebase Admin token verification
+- `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` for server-only social data access
 
 1. Install dependencies:
 
@@ -54,6 +57,14 @@ npm start
 - `POST /api/ai/chat`
 - `POST /api/stress/analyze`
 - `POST /api/tts/sarvam`
+- `GET|POST /api/social/posts`
+- `POST /api/social/posts/:postId/likes/toggle`
+- `GET|POST /api/social/posts/:postId/comments`
+- `GET|POST /api/social/messages`
+- `GET|POST /api/social/communities`
+
+Social endpoints require `Authorization: Bearer <Firebase ID token>`. Never put
+`SUPABASE_SERVICE_ROLE_KEY` or Firebase Admin credentials in the mobile app.
 
 ## Realtime Events (Socket.IO)
 
