@@ -6,6 +6,7 @@ import {
     ChannelProfileType,
     ClientRoleType,
     createAgoraRtcEngine,
+    ErrorCodeType,
     IRtcEngine,
     IRtcEngineEventHandler,
     RenderModeType,
@@ -47,6 +48,24 @@ function sanitizeRoomName(name: string): string {
         .slice(0, 30) || 'dharmaroom';
 }
 
+// Turns Agora error codes into messages a user can act on. Raw codes go to the console only.
+function describeCallError(code: number | undefined): string {
+    switch (code) {
+        case ErrorCodeType.ErrInvalidAppId:
+            return 'Video calling is not set up correctly yet. Please try again later.';
+        case ErrorCodeType.ErrTokenExpired:
+        case ErrorCodeType.ErrInvalidToken:
+            return 'Your call session has expired. Tap "Try again" to rejoin.';
+        case ErrorCodeType.ErrNoPermission:
+            return 'Camera or microphone access is blocked. Allow it in Settings and try again.';
+        case ErrorCodeType.ErrNetDown:
+        case ErrorCodeType.ErrNoServerResources:
+            return 'Check your internet connection and try again.';
+        default:
+            return 'The call could not start. Check your connection and try again.';
+    }
+}
+
 // Owns the Agora engine. Mounted only while a call is active, so the engine is released
 // as soon as the user leaves. Mic and camera stay off until the user turns them on.
 const CallView: React.FC<{
@@ -83,7 +102,7 @@ const CallView: React.FC<{
             onError: (err, msg) => {
                 console.warn('Agora error:', err, msg);
                 // Errors before the channel is joined mean the call never started.
-                if (!joinedOk) onFailedRef.current(`Could not join the call (code ${err}). ${msg || ''}`.trim());
+                if (!joinedOk) onFailedRef.current(describeCallError(err));
             },
         };
 
@@ -94,7 +113,10 @@ const CallView: React.FC<{
                 appId: joinInfo.appId,
                 channelProfile: ChannelProfileType.ChannelProfileCommunication,
             });
-            if (initResult < 0) throw new Error(`Video engine failed to start (code ${initResult}).`);
+            if (initResult < 0) {
+                console.warn('Agora initialize failed:', initResult);
+                throw new Error(describeCallError(initResult));
+            }
 
             engine.enableVideo();
             const joinResult = engine.joinChannelWithUserAccount(
@@ -110,11 +132,14 @@ const CallView: React.FC<{
                     autoSubscribeVideo: true,
                 }
             );
-            if (joinResult < 0) throw new Error(`Could not join the call (code ${joinResult}).`);
+            if (joinResult < 0) {
+                console.warn('Agora join failed:', joinResult);
+                throw new Error(describeCallError(joinResult));
+            }
             engineRef.current = engine;
         } catch (error: any) {
             console.warn('Agora start failed:', error);
-            onFailedRef.current(error?.message || 'Video calling could not start on this device.');
+            onFailedRef.current(error?.message || describeCallError(undefined));
         }
 
         return () => {
