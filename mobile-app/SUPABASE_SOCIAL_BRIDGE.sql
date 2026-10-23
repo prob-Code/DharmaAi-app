@@ -113,17 +113,7 @@ begin
     where contype = 'f'
       and (
         conrelid = 'public.profiles'::regclass
-        or (
-          conrelid in (
-            'public.posts'::regclass,
-            'public.comments'::regclass,
-            'public.likes'::regclass,
-            'public.messages'::regclass,
-            'public.communities'::regclass,
-            'public.community_members'::regclass
-          )
-          and confrelid = 'public.profiles'::regclass
-        )
+        or confrelid = 'public.profiles'::regclass
       )
   loop
     execute format(
@@ -199,6 +189,22 @@ begin
   ) then
     alter table public.community_members alter column user_id type text using user_id::text;
   end if;
+
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'follows'
+      and column_name = 'follower_id' and data_type = 'uuid'
+  ) then
+    alter table public.follows alter column follower_id type text using follower_id::text;
+  end if;
+
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'follows'
+      and column_name = 'following_id' and data_type = 'uuid'
+  ) then
+    alter table public.follows alter column following_id type text using following_id::text;
+  end if;
 end $$;
 
 do $$
@@ -271,5 +277,27 @@ begin
     alter table public.community_members
       add constraint community_members_user_id_fkey foreign key (user_id)
       references public.profiles(id) on delete cascade;
+  end if;
+
+  if to_regclass('public.follows') is not null then
+    if not exists (
+      select 1 from pg_constraint
+      where conname = 'follows_follower_id_fkey'
+        and conrelid = 'public.follows'::regclass
+    ) then
+      alter table public.follows
+        add constraint follows_follower_id_fkey foreign key (follower_id)
+        references public.profiles(id) on delete cascade;
+    end if;
+
+    if not exists (
+      select 1 from pg_constraint
+      where conname = 'follows_following_id_fkey'
+        and conrelid = 'public.follows'::regclass
+    ) then
+      alter table public.follows
+        add constraint follows_following_id_fkey foreign key (following_id)
+        references public.profiles(id) on delete cascade;
+    end if;
   end if;
 end $$;
