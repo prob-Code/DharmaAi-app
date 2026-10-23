@@ -78,6 +78,31 @@ create index if not exists messages_participants_idx on public.messages (sender_
 -- Migration for databases created from an older version of this bridge.
 -- Firebase UIDs are not UUIDs. Convert user identity columns without changing
 -- post, comment, like, community, or message record IDs.
+-- The existing Supabase policies are removed first because PostgreSQL does not
+-- allow changing a column type while an RLS policy depends on that column.
+-- The backend uses the service-role key, which bypasses these client policies.
+do $$
+declare
+  policy_record record;
+begin
+  for policy_record in
+    select schemaname, tablename, policyname
+    from pg_policies
+    where schemaname = 'public'
+      and tablename in (
+        'profiles', 'posts', 'comments', 'likes', 'messages',
+        'communities', 'community_members'
+      )
+  loop
+    execute format(
+      'drop policy if exists %I on %I.%I',
+      policy_record.policyname,
+      policy_record.schemaname,
+      policy_record.tablename
+    );
+  end loop;
+end $$;
+
 do $$
 declare
   constraint_record record;
