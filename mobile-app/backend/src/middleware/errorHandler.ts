@@ -14,7 +14,8 @@ export function errorHandler(err: ApiError, _req: Request, res: Response, _next:
   const isSupabaseSetupError = errorCode === "42P01"
     || errorCode === "PGRST205"
     || err.message.includes("Supabase social store is not configured");
-  const isSocialRequest = _req.path.startsWith("/social");
+  const isSocialRequest = _req.baseUrl === "/api/social"
+    || _req.originalUrl.startsWith("/api/social/");
   const message = isSupabaseSetupError
     ? "Social data storage is not configured. Run SUPABASE_SOCIAL_BRIDGE.sql and verify the backend Supabase variables."
     : statusCode >= 500 ? "Internal server error" : err.message;
