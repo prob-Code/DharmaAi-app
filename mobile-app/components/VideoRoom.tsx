@@ -1,5 +1,5 @@
 import React, { Component, ErrorInfo, useEffect, useState } from 'react';
-import { NativeModules, View, Text, Modal, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, Modal, TouchableOpacity, StyleSheet } from 'react-native';
 
 type CoreProps = React.ComponentProps<typeof import('./VideoRoomCore').VideoRoomCore>;
 type CoreComponent = React.ComponentType<CoreProps>;
@@ -26,34 +26,20 @@ class CallErrorBoundary extends Component<
     }
 }
 
-// LiveKit uses a native WebRTC module that Expo Go does not include. Importing it at
-// startup crashes the whole app, so it is only loaded the first time a call is opened.
+// Agora's native engine is not included in Expo Go. Importing it at startup would crash the
+// whole app, so it is only loaded the first time a call is opened.
 function loadCore(): CoreComponent | null {
     if (cachedCore || loadError) return cachedCore;
     try {
-        const webRtcModule = NativeModules.WebRTCModule;
-        const liveKitModule = NativeModules.LivekitReactNativeModule;
-        if (!webRtcModule || !liveKitModule) {
-            loadError = 'The native WebRTC module is not installed in this build.';
-            return null;
-        }
-        const livekit = require('@livekit/react-native');
-        if (typeof livekit.registerGlobals !== 'function') {
-            loadError = 'The LiveKit native module is incomplete in this build.';
-            return null;
-        }
-        livekit.registerGlobals();
-        if (
-            typeof globalThis.RTCPeerConnection !== 'function' ||
-            !globalThis.navigator?.mediaDevices?.getUserMedia
-        ) {
-            loadError = 'The native WebRTC module could not be initialized.';
+        const agora = require('react-native-agora');
+        if (typeof agora.createAgoraRtcEngine !== 'function') {
+            loadError = 'The Agora video module is not installed in this build.';
             return null;
         }
         cachedCore = require('./VideoRoomCore').VideoRoomCore;
     } catch (e: any) {
         loadError = e?.message ?? String(e);
-        // Expo Go intentionally does not ship the native WebRTC module. The
+        // Expo Go intentionally does not ship native video modules. The
         // visible modal below explains the limitation to the user.
     }
     return cachedCore;

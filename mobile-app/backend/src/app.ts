@@ -10,7 +10,7 @@ import { healthRouter } from "./routes/health";
 import { youtubeRouter } from "./routes/youtube";
 import { stressRouter } from "./routes/stress";
 import { ttsRouter } from "./routes/tts";
-import { livekitRouter } from "./routes/livekit";
+import { videoRouter } from "./routes/video";
 import { socialRouter } from "./routes/social";
 
 export function createApp() {
@@ -39,7 +39,7 @@ export function createApp() {
   app.use("/api/ai", aiRouter);
   app.use("/api/stress", stressRouter);
   app.use("/api/tts", ttsRouter);
-  app.use("/api/livekit", livekitRouter);
+  app.use("/api/video", videoRouter);
   app.use("/api/social", socialRouter);
 
   app.use(notFound);

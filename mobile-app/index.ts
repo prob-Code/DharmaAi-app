@@ -2,8 +2,8 @@ import { registerRootComponent } from 'expo';
 
 import App from './App';
 
-// LiveKit's registerGlobals() is called lazily in components/VideoRoom.tsx, because
-// importing WebRTC at startup crashes Expo Go (no native WebRTC module there).
+// The Agora video engine is loaded lazily in components/VideoRoom.tsx, because importing
+// native video modules at startup crashes Expo Go (no native video module there).
 
 // registerRootComponent calls AppRegistry.registerComponent('main', () => App);
 // It also ensures that whether you load the app in Expo Go or in a native build,

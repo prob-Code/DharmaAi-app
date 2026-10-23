@@ -17,9 +17,7 @@
       "expo-status-bar",
       "expo-audio",
       "expo-video",
-      "expo-asset",
-      "@livekit/react-native-expo-plugin",
-      "@config-plugins/react-native-webrtc"
+      "expo-asset"
     ],
     "ios": {
       "supportsTablet": true,
@@ -27,7 +25,9 @@
       "infoPlist": {
         "UIBackgroundModes": [
           "audio"
-        ]
+        ],
+        "NSCameraUsageDescription": "Saarthi uses the camera for video calls with your Dharma Circle.",
+        "NSMicrophoneUsageDescription": "Saarthi uses the microphone for voice and video calls with your Dharma Circle."
       }
     },
     "android": {

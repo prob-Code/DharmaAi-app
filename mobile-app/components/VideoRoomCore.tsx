@@ -1,9 +1,17 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { View, StyleSheet, ActivityIndicator, TouchableOpacity, Text, Modal, Platform, PermissionsAndroid, Alert, FlatList, ListRenderItem } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { X, Mic, MicOff, Video as VideoIcon, VideoOff } from 'lucide-react-native';
-import { LiveKitRoom, TrackReferenceOrPlaceholder, VideoTrack, isTrackReference, useLocalParticipant, useTracks } from '@livekit/react-native';
-import { Track } from 'livekit-client';
+import {
+    ChannelProfileType,
+    ClientRoleType,
+    createAgoraRtcEngine,
+    IRtcEngine,
+    IRtcEngineEventHandler,
+    RenderModeType,
+    RtcSurfaceView,
+    VideoSourceType,
+} from 'react-native-agora';
 import { useTheme } from '../context/ThemeContext';
 import { Config } from '../config';
 import { getIdToken } from '../services/firebase';
@@ -21,7 +29,17 @@ interface VideoRoomProps {
     friendName?: string;
 }
 
-// Sanitize room name: only lowercase alphanumeric and hyphens, max 30 chars
+// Shape returned by POST /api/video/token on the backend
+type JoinInfo = {
+    token: string;
+    appId: string;
+    channelName: string;
+    userAccount: string;
+};
+
+type Tile = { key: string; uid: number; isLocal: boolean };
+
+// Sanitize room name: only lowercase alphanumeric, max 30 chars
 function sanitizeRoomName(name: string): string {
     return name
         .toLowerCase()
@@ -29,57 +47,168 @@ function sanitizeRoomName(name: string): string {
         .slice(0, 30) || 'dharmaroom';
 }
 
-type JoinInfo = { token: string; url: string };
-
-// Inside LiveKitRoom: participant grid plus mic/camera toggles
-const CallView: React.FC<{ onLeave: () => void }> = ({ onLeave }) => {
+// Owns the Agora engine. Mounted only while a call is active, so the engine is released
+// as soon as the user leaves. Mic and camera stay off until the user turns them on.
+const CallView: React.FC<{
+    joinInfo: JoinInfo;
+    onLeave: () => void;
+    onFailed: (message: string) => void;
+}> = ({ joinInfo, onLeave, onFailed }) => {
     const { theme } = useTheme();
-    const tracks = useTracks([Track.Source.Camera]);
-    const { localParticipant, isMicrophoneEnabled, isCameraEnabled } = useLocalParticipant();
+    const engineRef = useRef<IRtcEngine | null>(null);
+    const onFailedRef = useRef(onFailed);
+    onFailedRef.current = onFailed;
 
-    const toggleMicrophone = async () => {
+    const [joined, setJoined] = useState(false);
+    const [localUid, setLocalUid] = useState(0);
+    const [remoteUids, setRemoteUids] = useState<number[]>([]);
+    const [micOn, setMicOn] = useState(false);
+    const [camOn, setCamOn] = useState(false);
+
+    useEffect(() => {
+        let engine: IRtcEngine | null = null;
+        let joinedOk = false;
+        const handler: IRtcEngineEventHandler = {
+            onJoinChannelSuccess: (connection) => {
+                joinedOk = true;
+                setJoined(true);
+                setLocalUid(connection.localUid ?? 0);
+            },
+            onUserJoined: (_connection, remoteUid) => {
+                setRemoteUids((prev) => (prev.includes(remoteUid) ? prev : [...prev, remoteUid]));
+            },
+            onUserOffline: (_connection, remoteUid) => {
+                setRemoteUids((prev) => prev.filter((uid) => uid !== remoteUid));
+            },
+            onError: (err, msg) => {
+                console.warn('Agora error:', err, msg);
+                // Errors before the channel is joined mean the call never started.
+                if (!joinedOk) onFailedRef.current(`Could not join the call (code ${err}). ${msg || ''}`.trim());
+            },
+        };
+
         try {
-            await localParticipant.setMicrophoneEnabled(!isMicrophoneEnabled);
-        } catch (mediaError) {
-            console.warn('LiveKit microphone could not start:', mediaError);
+            engine = createAgoraRtcEngine();
+            engine.registerEventHandler(handler);
+            const initResult = engine.initialize({
+                appId: joinInfo.appId,
+                channelProfile: ChannelProfileType.ChannelProfileCommunication,
+            });
+            if (initResult < 0) throw new Error(`Video engine failed to start (code ${initResult}).`);
+
+            engine.enableVideo();
+            const joinResult = engine.joinChannelWithUserAccount(
+                joinInfo.token,
+                joinInfo.channelName,
+                joinInfo.userAccount,
+                {
+                    channelProfile: ChannelProfileType.ChannelProfileCommunication,
+                    clientRoleType: ClientRoleType.ClientRoleBroadcaster,
+                    publishMicrophoneTrack: false,
+                    publishCameraTrack: false,
+                    autoSubscribeAudio: true,
+                    autoSubscribeVideo: true,
+                }
+            );
+            if (joinResult < 0) throw new Error(`Could not join the call (code ${joinResult}).`);
+            engineRef.current = engine;
+        } catch (error: any) {
+            console.warn('Agora start failed:', error);
+            onFailedRef.current(error?.message || 'Video calling could not start on this device.');
+        }
+
+        return () => {
+            try {
+                if (engine) {
+                    engine.unregisterEventHandler(handler);
+                    engine.leaveChannel();
+                    engine.release();
+                }
+            } catch (error) {
+                console.warn('Agora cleanup failed:', error);
+            }
+            engineRef.current = null;
+        };
+    }, [joinInfo]);
+
+    const toggleMicrophone = () => {
+        const engine = engineRef.current;
+        if (!engine) return;
+        const next = !micOn;
+        try {
+            engine.enableLocalAudio(next);
+            engine.updateChannelMediaOptions({ publishMicrophoneTrack: next });
+            setMicOn(next);
+        } catch (error) {
+            console.warn('Microphone could not change:', error);
         }
     };
 
-    const toggleCamera = async () => {
+    const toggleCamera = () => {
+        const engine = engineRef.current;
+        if (!engine) return;
+        const next = !camOn;
         try {
-            await localParticipant.setCameraEnabled(!isCameraEnabled);
-        } catch (mediaError) {
-            console.warn('LiveKit camera could not start:', mediaError);
+            if (next) {
+                engine.enableLocalVideo(true);
+                engine.startPreview();
+            } else {
+                engine.stopPreview();
+                engine.enableLocalVideo(false);
+            }
+            engine.updateChannelMediaOptions({ publishCameraTrack: next });
+            setCamOn(next);
+        } catch (error) {
+            console.warn('Camera could not change:', error);
         }
     };
 
-    const renderTrack: ListRenderItem<TrackReferenceOrPlaceholder> = ({ item }) => {
-        if (isTrackReference(item)) {
-            return <VideoTrack trackRef={item} style={styles.participantView} />;
+    const tiles: Tile[] = [
+        { key: 'local', uid: localUid, isLocal: true },
+        ...remoteUids.map((uid) => ({ key: String(uid), uid, isLocal: false })),
+    ];
+
+    const renderTile: ListRenderItem<Tile> = ({ item }) => {
+        if (item.isLocal && !camOn) {
+            return (
+                <View style={[styles.participantView, styles.cameraOff]}>
+                    <Text style={styles.cameraOffText}>Camera off</Text>
+                </View>
+            );
         }
-        return <View style={styles.participantView} />;
+        return (
+            <RtcSurfaceView
+                style={styles.participantView}
+                canvas={{
+                    uid: item.isLocal ? 0 : item.uid,
+                    renderMode: RenderModeType.RenderModeHidden,
+                    sourceType: item.isLocal ? VideoSourceType.VideoSourceCamera : undefined,
+                }}
+                connection={{ channelId: joinInfo.channelName, localUid }}
+            />
+        );
     };
 
     return (
         <View style={styles.callContainer}>
             <FlatList
-                data={tracks}
-                keyExtractor={(item) => `${item.participant.identity}-${item.source}`}
-                renderItem={renderTrack}
+                data={joined ? tiles : []}
+                keyExtractor={(item) => item.key}
+                renderItem={renderTile}
                 style={{ flex: 1 }}
             />
             <View style={[styles.controls, { borderTopColor: theme.colors.border }]}>
                 <TouchableOpacity
                     onPress={toggleMicrophone}
-                    style={[styles.controlButton, { backgroundColor: isMicrophoneEnabled ? 'rgba(255,255,255,0.15)' : '#ef4444' }]}
+                    style={[styles.controlButton, { backgroundColor: micOn ? 'rgba(255,255,255,0.15)' : '#ef4444' }]}
                 >
-                    {isMicrophoneEnabled ? <Mic color="#fff" size={22} /> : <MicOff color="#fff" size={22} />}
+                    {micOn ? <Mic color="#fff" size={22} /> : <MicOff color="#fff" size={22} />}
                 </TouchableOpacity>
                 <TouchableOpacity
                     onPress={toggleCamera}
-                    style={[styles.controlButton, { backgroundColor: isCameraEnabled ? 'rgba(255,255,255,0.15)' : '#ef4444' }]}
+                    style={[styles.controlButton, { backgroundColor: camOn ? 'rgba(255,255,255,0.15)' : '#ef4444' }]}
                 >
-                    {isCameraEnabled ? <VideoIcon color="#fff" size={22} /> : <VideoOff color="#fff" size={22} />}
+                    {camOn ? <VideoIcon color="#fff" size={22} /> : <VideoOff color="#fff" size={22} />}
                 </TouchableOpacity>
                 <TouchableOpacity onPress={onLeave} style={[styles.controlButton, { backgroundColor: '#ef4444' }]}>
                     <X color="#fff" size={22} />
@@ -89,21 +218,20 @@ const CallView: React.FC<{ onLeave: () => void }> = ({ onLeave }) => {
     );
 };
 
-export const VideoRoomCore: React.FC<VideoRoomProps> = ({ roomName, visible, onClose, userInfo, friendName }) => {
+export const VideoRoomCore: React.FC<VideoRoomProps> = ({ roomName, visible, onClose, friendName }) => {
     const { theme } = useTheme();
     const [permissionGranted, setPermissionGranted] = useState(false);
     const [joinInfo, setJoinInfo] = useState<JoinInfo | null>(null);
     const [error, setError] = useState<string | null>(null);
 
-    const displayName = userInfo?.displayName || 'Friend';
     const cleanRoom = sanitizeRoomName(roomName);
 
     // Request Android permissions before joining
     const requestPermissions = useCallback(async () => {
         if (Platform.OS === 'android') {
             try {
-                // Android 12+ needs BLUETOOTH_CONNECT before LiveKit's audio session can read
-                // Bluetooth outputs. It is requested with the others, but not required to join.
+                // Android 12+ needs BLUETOOTH_CONNECT to list Bluetooth audio outputs. It is
+                // requested with the others, but not required to join.
                 const grants = await PermissionsAndroid.requestMultiple(
                     Platform.Version >= 31
                         ? [
@@ -131,41 +259,48 @@ export const VideoRoomCore: React.FC<VideoRoomProps> = ({ roomName, visible, onC
                 setPermissionGranted(true);
             }
         } else {
-            // iOS prompts for permissions automatically when the room connects
+            // iOS prompts for camera and microphone the first time they are used
             setPermissionGranted(true);
         }
     }, []);
 
-    // Ask the backend for a room token. The LiveKit API secret stays on the server.
+    // Ask the backend for a call token. The Agora App Certificate stays on the server.
     const fetchToken = useCallback(async () => {
         setError(null);
         setJoinInfo(null);
         try {
             const token = await getIdToken();
             if (!token) throw new Error('You must be signed in to start a video call.');
-            const res = await fetch(`${Config.BACKEND_URL}/api/livekit/token`, {
+            const res = await fetch(`${Config.BACKEND_URL}/api/video/token`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     Authorization: `Bearer ${token}`,
                 },
-                body: JSON.stringify({ roomName: cleanRoom, name: displayName }),
+                body: JSON.stringify({ roomName: cleanRoom }),
             });
             if (!res.ok) {
                 const body = await res.json().catch(() => null);
                 throw new Error(body?.error || `Video call service unavailable (${res.status})`);
             }
             const data = await res.json();
-            if (!data.token || !data.url) throw new Error('Missing token');
-            setJoinInfo({ token: data.token, url: data.url });
+            if (!data.token || !data.appId || !data.channelName || !data.userAccount) {
+                throw new Error('Incomplete call details from server');
+            }
+            setJoinInfo({
+                token: data.token,
+                appId: data.appId,
+                channelName: data.channelName,
+                userAccount: data.userAccount,
+            });
         } catch (err) {
-            console.warn('LiveKit token error:', err);
+            console.warn('Video token error:', err);
             setError('Could not start the call. Check your connection and try again.');
         }
-    }, [cleanRoom, displayName]);
+    }, [cleanRoom]);
 
-    // Request permissions on modal show, then fetch the room token
-    React.useEffect(() => {
+    // Request permissions on modal show, then fetch the call token
+    useEffect(() => {
         if (visible) {
             requestPermissions();
         } else {
@@ -176,7 +311,7 @@ export const VideoRoomCore: React.FC<VideoRoomProps> = ({ roomName, visible, onC
     }, [visible, requestPermissions]);
 
     // Only auto-join once per open; "Try again" handles retries
-    React.useEffect(() => {
+    useEffect(() => {
         if (visible && permissionGranted) {
             fetchToken();
         }
@@ -188,6 +323,11 @@ export const VideoRoomCore: React.FC<VideoRoomProps> = ({ roomName, visible, onC
         setPermissionGranted(false);
         onClose();
     }, [onClose]);
+
+    const handleCallFailed = useCallback((message: string) => {
+        setJoinInfo(null);
+        setError(message);
+    }, []);
 
     return (
         <Modal
@@ -223,21 +363,7 @@ export const VideoRoomCore: React.FC<VideoRoomProps> = ({ roomName, visible, onC
                             </TouchableOpacity>
                         </View>
                     ) : joinInfo ? (
-                        <LiveKitRoom
-                            serverUrl={joinInfo.url}
-                            token={joinInfo.token}
-                            connect={true}
-                            audio={false}
-                            video={false}
-                            onDisconnected={closeRoom}
-                            onError={(e) => {
-                                console.warn('LiveKit error:', e);
-                                setError('The call dropped. Check your connection and try again.');
-                                setJoinInfo(null);
-                            }}
-                        >
-                            <CallView onLeave={closeRoom} />
-                        </LiveKitRoom>
+                        <CallView joinInfo={joinInfo} onLeave={closeRoom} onFailed={handleCallFailed} />
                     ) : (
                         <View style={styles.loading}>
                             <ActivityIndicator size="large" color={theme.colors.accent} />
@@ -324,6 +450,15 @@ const styles = StyleSheet.create({
     },
     participantView: {
         height: 300,
+    },
+    cameraOff: {
+        backgroundColor: '#111',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    cameraOffText: {
+        color: '#9ca3af',
+        fontSize: 14,
     },
     controls: {
         flexDirection: 'row',
