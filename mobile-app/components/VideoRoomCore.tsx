@@ -2,7 +2,7 @@ import React, { useState, useCallback } from 'react';
 import { View, StyleSheet, ActivityIndicator, TouchableOpacity, Text, Modal, Platform, PermissionsAndroid, Alert, FlatList, ListRenderItem } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { X, Mic, MicOff, Video as VideoIcon, VideoOff } from 'lucide-react-native';
-import { AudioSession, LiveKitRoom, TrackReferenceOrPlaceholder, VideoTrack, isTrackReference, useLocalParticipant, useTracks } from '@livekit/react-native';
+import { LiveKitRoom, TrackReferenceOrPlaceholder, VideoTrack, isTrackReference, useLocalParticipant, useTracks } from '@livekit/react-native';
 import { Track } from 'livekit-client';
 import { useTheme } from '../context/ThemeContext';
 import { Config } from '../config';
@@ -37,20 +37,21 @@ const CallView: React.FC<{ onLeave: () => void }> = ({ onLeave }) => {
     const tracks = useTracks([Track.Source.Camera]);
     const { localParticipant, isMicrophoneEnabled, isCameraEnabled } = useLocalParticipant();
 
-    React.useEffect(() => {
-        let active = true;
-        void Promise.all([
-            localParticipant.setMicrophoneEnabled(true),
-            localParticipant.setCameraEnabled(true),
-        ]).catch((mediaError) => {
-            if (active) {
-                console.warn('LiveKit media could not start:', mediaError);
-            }
-        });
-        return () => {
-            active = false;
-        };
-    }, [localParticipant]);
+    const toggleMicrophone = async () => {
+        try {
+            await localParticipant.setMicrophoneEnabled(!isMicrophoneEnabled);
+        } catch (mediaError) {
+            console.warn('LiveKit microphone could not start:', mediaError);
+        }
+    };
+
+    const toggleCamera = async () => {
+        try {
+            await localParticipant.setCameraEnabled(!isCameraEnabled);
+        } catch (mediaError) {
+            console.warn('LiveKit camera could not start:', mediaError);
+        }
+    };
 
     const renderTrack: ListRenderItem<TrackReferenceOrPlaceholder> = ({ item }) => {
         if (isTrackReference(item)) {
@@ -69,13 +70,13 @@ const CallView: React.FC<{ onLeave: () => void }> = ({ onLeave }) => {
             />
             <View style={[styles.controls, { borderTopColor: theme.colors.border }]}>
                 <TouchableOpacity
-                    onPress={() => localParticipant.setMicrophoneEnabled(!isMicrophoneEnabled)}
+                    onPress={toggleMicrophone}
                     style={[styles.controlButton, { backgroundColor: isMicrophoneEnabled ? 'rgba(255,255,255,0.15)' : '#ef4444' }]}
                 >
                     {isMicrophoneEnabled ? <Mic color="#fff" size={22} /> : <MicOff color="#fff" size={22} />}
                 </TouchableOpacity>
                 <TouchableOpacity
-                    onPress={() => localParticipant.setCameraEnabled(!isCameraEnabled)}
+                    onPress={toggleCamera}
                     style={[styles.controlButton, { backgroundColor: isCameraEnabled ? 'rgba(255,255,255,0.15)' : '#ef4444' }]}
                 >
                     {isCameraEnabled ? <VideoIcon color="#fff" size={22} /> : <VideoOff color="#fff" size={22} />}
@@ -170,23 +171,6 @@ export const VideoRoomCore: React.FC<VideoRoomProps> = ({ roomName, visible, onC
             fetchToken();
         }
     }, [visible, permissionGranted, fetchToken]);
-
-    // Native audio session only while the call is on screen
-    React.useEffect(() => {
-        if (!joinInfo) return;
-        let active = true;
-        void AudioSession.startAudioSession().catch((audioError) => {
-            if (active) {
-                console.warn('LiveKit audio session could not start:', audioError);
-            }
-        });
-        return () => {
-            active = false;
-            void AudioSession.stopAudioSession().catch((audioError) => {
-                console.warn('LiveKit audio session could not stop:', audioError);
-            });
-        };
-    }, [joinInfo]);
 
     const headerTitle = friendName ? `Call: ${friendName}` : 'Community Circle';
     const closeRoom = useCallback(() => {
