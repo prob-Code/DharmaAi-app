@@ -6,12 +6,21 @@ import { pushTokensService } from './supabase';
 
 // ─── Safe expo-notifications import ───
 // expo-notifications remote push was REMOVED from Expo Go in SDK 53+.
-// We lazily import and guard every call to prevent fatal crashes.
+// Do not load the package at all in Android Expo Go: its module initialization
+// emits a warning before the app can reach our runtime guard.
 let Notifications: typeof import('expo-notifications') | null = null;
-try {
-  Notifications = require('expo-notifications');
-} catch (e) {
-  console.log('[Push] expo-notifications not available (Expo Go SDK 53+):', (e as any)?.message);
+const isAndroidExpoGo =
+  Platform.OS === 'android' &&
+  (Constants.appOwnership === 'expo' ||
+    Constants.executionEnvironment === 'storeClient' ||
+    Constants.executionEnvironment === Constants.ExecutionEnvironment?.StoreClient);
+
+if (!isAndroidExpoGo) {
+  try {
+    Notifications = require('expo-notifications');
+  } catch (e) {
+    console.log('[Push] expo-notifications is unavailable:', (e as any)?.message);
+  }
 }
 
 // Show notifications even while the app is in the foreground.
@@ -59,7 +68,6 @@ export async function registerForPushNotificationsAsync(userId?: string): Promis
       !Constants.expoConfig?.extra?.eas?.projectId;
 
     if (isExpoGo && Platform.OS === 'android') {
-      console.log('[Push] ⚠️ Android Expo Go (SDK 53+) detected — skipping remote push registration.');
       return { ok: false, reason: 'Remote push tokens are not available in Expo Go on Android SDK 53+.' };
     }
 
