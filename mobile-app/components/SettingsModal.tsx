@@ -54,16 +54,6 @@ export const SettingsModal: React.FC<Props> = ({ visible, onClose, settings, onU
     };
 
     const handleDeleteAccount = () => {
-        // Check if user is a guest
-        if (user?.id === 'guest-user') {
-            Alert.alert(
-                'Guest Account',
-                'You are using a guest account. Please sign in to manage your account.',
-                [{ text: 'OK' }]
-            );
-            return;
-        }
-
         Alert.alert(
             '⚠️ Delete Account',
             'This will permanently delete your account and ALL associated data including:\n\n• Your profile\n• All posts and comments\n• Chat history\n• Stress reports\n• Followers and following\n\nThis action CANNOT be undone.',

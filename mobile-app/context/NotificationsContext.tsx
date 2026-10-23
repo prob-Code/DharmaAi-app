@@ -43,10 +43,8 @@ export const NotificationsProvider: React.FC<{ children: React.ReactNode }> = ({
     const [notifications, setNotifications] = useState<Notification[]>([]);
     const didHydrateRef = React.useRef(false);
 
-    const isGuestUser = user?.id === 'guest-user';
-
     const loadNotifications = useCallback(async () => {
-        if (!user || isGuestUser) {
+        if (!user) {
             setNotifications([]);
             return;
         }
@@ -60,20 +58,13 @@ export const NotificationsProvider: React.FC<{ children: React.ReactNode }> = ({
             // For guest users or auth issues, just show empty
             setNotifications([]);
         }
-    }, [user, isGuestUser]);
+    }, [user]);
 
     useEffect(() => {
         didHydrateRef.current = false;
         setNotifications([]);
 
         if (!user) {
-            return;
-        }
-
-        // Guest users: just mark as hydrated and skip network calls
-        if (isGuestUser) {
-            setNotifications([]);
-            didHydrateRef.current = true;
             return;
         }
 
@@ -126,13 +117,13 @@ export const NotificationsProvider: React.FC<{ children: React.ReactNode }> = ({
             firestoreSubscription?.unsubscribe?.();
             unsubscribeSocket?.();
         };
-    }, [user, isGuestUser, loadNotifications]);
+    }, [user, loadNotifications]);
 
     const unreadCount = notifications.filter(n => !n.isRead).length;
 
     const markRead = async (notificationId: string) => {
         if (!notificationId) return;
-        if (!user || isGuestUser) {
+        if (!user) {
             setNotifications(prev => prev.map(n => n.id === notificationId ? { ...n, isRead: true } : n));
             return;
         }
@@ -145,7 +136,7 @@ export const NotificationsProvider: React.FC<{ children: React.ReactNode }> = ({
     };
 
     const markAllAsRead = async () => {
-        if (!user || isGuestUser) {
+        if (!user) {
             // For guest users, just clear locally
             setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
             return;
