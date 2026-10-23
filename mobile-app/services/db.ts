@@ -78,7 +78,9 @@ async function socialApi<T = any>(path: string, init: RequestInit = {}): Promise
     });
     if (!response.ok) {
         const body = await response.json().catch(() => null);
-        throw new Error(body?.error || `Social API request failed (${response.status})`);
+        const message = body?.error || `Social API request failed (${response.status})`;
+        const details = typeof body?.details === 'string' ? `: ${body.details}` : '';
+        throw new Error(`${message}${details}`);
     }
     return response.status === 204 ? (undefined as T) : response.json();
 }

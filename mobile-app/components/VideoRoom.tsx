@@ -24,10 +24,18 @@ function loadCore(): CoreComponent | null {
 
 export const VideoRoom: React.FC<CoreProps> = (props) => {
     const [Core, setCore] = useState<CoreComponent | null>(cachedCore);
+    const [initializationError, setInitializationError] = useState<string | null>(loadError);
 
     useEffect(() => {
-        if (props.visible && !Core) setCore(loadCore());
-    }, [props.visible]);
+        if (!props.visible || Core) return;
+        try {
+            setCore(loadCore());
+            setInitializationError(loadError);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            setInitializationError(message);
+        }
+    }, [props.visible, Core]);
 
     if (Core) return <Core {...props} />;
     if (!props.visible) return null;
@@ -38,7 +46,9 @@ export const VideoRoom: React.FC<CoreProps> = (props) => {
                 <View style={styles.card}>
                     <Text style={styles.title}>Video calls unavailable</Text>
                     <Text style={styles.body}>
-                        Video calls need a development or production build of the app. They are not supported in Expo Go.
+                        {initializationError
+                            ? 'Video calling could not start on this device. Check that you installed the latest APK and granted camera and microphone permissions.'
+                            : 'Video calls need a development or production build of the app. They are not supported in Expo Go.'}
                     </Text>
                     <TouchableOpacity onPress={props.onClose} style={styles.button}>
                         <Text style={styles.buttonText}>Close</Text>

@@ -183,7 +183,8 @@ export const Reflections: React.FC<Props> = ({ settings }) => {
       setPosts(transformed);
     } catch (error) {
       console.error('Error loading posts', error);
-      setFeedError('Unable to load fragments right now. Check your connection and try again.');
+      const message = error instanceof Error ? error.message : '';
+      setFeedError(message || 'Unable to load fragments right now. Check your connection and try again.');
     } finally {
       setRefreshing(false);
     }
