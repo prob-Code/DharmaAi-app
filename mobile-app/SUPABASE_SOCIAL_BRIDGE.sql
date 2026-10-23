@@ -111,7 +111,20 @@ begin
     select conrelid::regclass as table_name, conname
     from pg_constraint
     where contype = 'f'
-      and confrelid = 'public.profiles'::regclass
+      and (
+        conrelid = 'public.profiles'::regclass
+        or (
+          conrelid in (
+            'public.posts'::regclass,
+            'public.comments'::regclass,
+            'public.likes'::regclass,
+            'public.messages'::regclass,
+            'public.communities'::regclass,
+            'public.community_members'::regclass
+          )
+          and confrelid = 'public.profiles'::regclass
+        )
+      )
   loop
     execute format(
       'alter table %s drop constraint %I',
