@@ -356,7 +356,13 @@ export const Reflections: React.FC<Props> = ({ settings }) => {
       setNewContent(contentToPost);
       setSelectedMood(MOOD_TAGS.find(mood => mood.label === moodToPost) || MOOD_TAGS[0]);
       setShowCompose(true);
-      Alert.alert('Error', error.message || 'Failed to post reflection');
+      const message = error?.message || 'Failed to post reflection';
+      Alert.alert(
+        'Unable to publish',
+        message.includes('Social data storage is not configured')
+          ? 'The social database is not ready. Run SUPABASE_SOCIAL_BRIDGE.sql in Supabase SQL Editor, then redeploy the backend.'
+          : message
+      );
     } finally {
       setPosting(false);
     }

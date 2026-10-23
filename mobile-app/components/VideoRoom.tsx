@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, Modal, TouchableOpacity, StyleSheet } from 'react-native';
+import { NativeModules, View, Text, Modal, TouchableOpacity, StyleSheet } from 'react-native';
 
 type CoreProps = React.ComponentProps<typeof import('./VideoRoomCore').VideoRoomCore>;
 type CoreComponent = React.ComponentType<CoreProps>;
@@ -12,6 +12,10 @@ let loadError: string | null = null;
 function loadCore(): CoreComponent | null {
     if (cachedCore || loadError) return cachedCore;
     try {
+        if (!NativeModules.WebRTCModule) {
+            loadError = 'The native WebRTC module is not installed in this build.';
+            return null;
+        }
         require('@livekit/react-native').registerGlobals();
         cachedCore = require('./VideoRoomCore').VideoRoomCore;
     } catch (e: any) {
