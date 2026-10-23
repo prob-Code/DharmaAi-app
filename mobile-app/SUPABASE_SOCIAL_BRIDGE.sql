@@ -91,7 +91,7 @@ begin
     where schemaname = 'public'
       and tablename in (
         'profiles', 'posts', 'comments', 'likes', 'messages',
-        'communities', 'community_members'
+        'communities', 'community_members', 'follows'
       )
   loop
     execute format(
