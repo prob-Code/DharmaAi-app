@@ -10,7 +10,6 @@ type AuthContextType = {
     signIn: typeof authService.signIn;
     signUp: typeof authService.signUp;
     signOut: typeof authService.signOut;
-    skipAuth: () => void;
 };
 
 const AuthContext = createContext<AuthContextType>({
@@ -20,7 +19,6 @@ const AuthContext = createContext<AuthContextType>({
     signIn: async () => ({} as any),
     signUp: async () => ({} as any),
     signOut: async () => { },
-    skipAuth: () => { },
 });
 
 export const useAuth = () => useContext(AuthContext);
@@ -80,26 +78,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         };
     }, [user?.id]);
 
-    const skipAuth = () => {
-        const dummyUser = {
-            id: 'guest-user',
-            email: 'guest@example.com',
-            user_metadata: { username: 'Guest' },
-            aud: 'authenticated',
-            role: 'authenticated',
-        } as any;
-        const dummySession = {
-            access_token: 'dummy-token',
-            refresh_token: 'dummy-refresh',
-            expires_in: 3600,
-            token_type: 'bearer',
-            user: dummyUser,
-        } as CompatSession;
-        setSession(dummySession);
-        setUser(dummyUser);
-        setLoading(false);
-    };
-
     const value = {
         session,
         user,
@@ -107,7 +85,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         signIn: authService.signIn,
         signUp: authService.signUp,
         signOut: authService.signOut,
-        skipAuth,
     };
 
     return (

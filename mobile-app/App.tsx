@@ -32,7 +32,7 @@ const DEFAULT_SETTINGS: UserSettings = {
 };
 
 const AppContent = () => {
-  const { session, loading: authLoading, user, signOut, skipAuth } = useAuth();
+  const { session, loading: authLoading, user, signOut } = useAuth();
   const { theme } = useTheme();
   const insets = useSafeAreaInsets();
   const [appState, setAppState] = useState<AppState>(AppState.ONBOARDING);

@@ -37,7 +37,7 @@ export const AuthScreen = () => {
     const [username, setUsername] = useState('');
     const [loading, setLoading] = useState(false);
     const [loadingMessage, setLoadingMessage] = useState('');
-    const { signIn, signUp, skipAuth } = useAuth();
+    const { signIn, signUp } = useAuth();
     const { signInWithGoogle } = authService;
     const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const oauthLinkSubRef = useRef<{ remove: () => void } | null>(null);
