@@ -11,7 +11,7 @@ declare global {
   }
 }
 
-function getFirebaseAuth() {
+export function getFirebaseAuth() {
   if (!env.FIREBASE_PROJECT_ID || !env.FIREBASE_CLIENT_EMAIL || !env.FIREBASE_PRIVATE_KEY) {
     throw new Error("Firebase Admin authentication is not configured on the backend.");
   }

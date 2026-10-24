@@ -584,22 +584,15 @@ export const followsService = {
 };
 
 export const profilesService = {
-    getAll: async (excludeUserId?: string) => {
-        const snaps = await getDocs(query(collection(db, 'profiles'), fsLimit(20)));
-        return snaps.docs.map(row).filter((profile) => profile.id !== excludeUserId);
+    getAll: async (excludeUserId?: string): Promise<any[]> => {
+        const profiles = await socialApi<any[]>('/profiles');
+        return (profiles || []).filter((profile) => profile.id !== excludeUserId);
     },
 
-    search: async (text: string, excludeUserId?: string) => {
-        const snaps = await getDocs(query(collection(db, 'profiles'), fsLimit(50)));
+    search: async (text: string, excludeUserId?: string): Promise<any[]> => {
         const normalized = text.trim().toLowerCase();
-        if (!normalized) return snaps.docs.map(row).filter((profile) => profile.id !== excludeUserId);
-        return snaps.docs
-            .map(row)
-            .filter((profile) => profile.id !== excludeUserId)
-            .filter((profile) =>
-                `${profile.display_name ?? ''} ${profile.username ?? ''}`.toLowerCase().includes(normalized),
-            )
-            .slice(0, 20);
+        const profiles = await socialApi<any[]>(`/profiles${normalized ? `?search=${encodeURIComponent(normalized)}` : ''}`);
+        return (profiles || []).filter((profile) => profile.id !== excludeUserId).slice(0, 20);
     },
 };
 
@@ -609,13 +602,30 @@ export const profilesService = {
 
 export const messagesService = {
 
-    send: async (receiverId: string, content: string) => {
+    send: async (
+        receiverId: string,
+        content: string,
+        receiverProfile?: { username?: string; display_name?: string; avatar_url?: string },
+    ): Promise<any> => {
         const me = requireUser();
         const cleanContent = content.trim();
         if (!receiverId || receiverId === me.uid) throw new Error('You cannot message this account.');
         if (!cleanContent) throw new Error('Message cannot be empty.');
         if (cleanContent.length > 1000) throw new Error('Message must be 1000 characters or fewer.');
-        return socialApi('/messages', { method: 'POST', body: JSON.stringify({ receiverId, content: cleanContent }) });
+        return socialApi('/messages', {
+            method: 'POST',
+            body: JSON.stringify({
+                receiverId,
+                content: cleanContent,
+                receiverProfile: receiverProfile
+                    ? {
+                        username: receiverProfile.username,
+                        display_name: receiverProfile.display_name,
+                        avatar_url: receiverProfile.avatar_url,
+                    }
+                    : undefined,
+            }),
+        });
     },
 
     getConversations: async () => {

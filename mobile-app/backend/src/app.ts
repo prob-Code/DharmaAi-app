@@ -40,6 +40,8 @@ export function createApp() {
   app.use("/api/stress", stressRouter);
   app.use("/api/tts", ttsRouter);
   app.use("/api/video", videoRouter);
+  // Keep the previous endpoint available for already-installed app builds.
+  app.use("/api/livekit", videoRouter);
   app.use("/api/social", socialRouter);
 
   app.use(notFound);
