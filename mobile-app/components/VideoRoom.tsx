@@ -26,14 +26,14 @@ class CallErrorBoundary extends Component<
     }
 }
 
-// Agora's native engine is not included in Expo Go. Importing it at startup would crash the
-// whole app, so it is only loaded the first time a call is opened.
+// The VideoSDK native engine is not included in Expo Go. Importing it at startup would crash
+// the whole app, so it is only loaded the first time a call is opened.
 function loadCore(): CoreComponent | null {
     if (cachedCore || loadError) return cachedCore;
     try {
-        const agora = require('react-native-agora');
-        if (typeof agora.createAgoraRtcEngine !== 'function') {
-            loadError = 'The Agora video module is not installed in this build.';
+        const videoSdk = require('@videosdk.live/react-native-sdk');
+        if (typeof videoSdk.RoomProvider !== 'function') {
+            loadError = 'The video calling module is not installed in this build.';
             return null;
         }
         cachedCore = require('./VideoRoomCore').VideoRoomCore;

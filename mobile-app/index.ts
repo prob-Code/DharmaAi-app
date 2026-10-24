@@ -2,7 +2,7 @@ import { registerRootComponent } from 'expo';
 
 import App from './App';
 
-// The Agora video engine is loaded lazily in components/VideoRoom.tsx, because importing
+// The video calling SDK is loaded lazily in components/VideoRoom.tsx, because importing
 // native video modules at startup crashes Expo Go (no native video module there).
 
 // registerRootComponent calls AppRegistry.registerComponent('main', () => App);
