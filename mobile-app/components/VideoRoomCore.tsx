@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { View, StyleSheet, ActivityIndicator, TouchableOpacity, Text, Modal, Platform, PermissionsAndroid, Alert, FlatList, ListRenderItem } from 'react-native';
+import { View, StyleSheet, ActivityIndicator, TouchableOpacity, Text, Modal, Platform, PermissionsAndroid, Linking, FlatList, ListRenderItem } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { X, Mic, MicOff, Video as VideoIcon, VideoOff } from 'lucide-react-native';
 import {
@@ -171,6 +171,7 @@ const CallView: React.FC<{
 export const VideoRoomCore: React.FC<VideoRoomProps> = ({ roomName, visible, onClose, userInfo, friendName }) => {
     const { theme } = useTheme();
     const [permissionGranted, setPermissionGranted] = useState(false);
+    const [permissionDenied, setPermissionDenied] = useState(false);
     const [joinInfo, setJoinInfo] = useState<JoinInfo | null>(null);
     const [error, setError] = useState<string | null>(null);
 
@@ -179,6 +180,7 @@ export const VideoRoomCore: React.FC<VideoRoomProps> = ({ roomName, visible, onC
 
     // Request Android permissions before joining
     const requestPermissions = useCallback(async () => {
+        setPermissionDenied(false);
         if (Platform.OS === 'android') {
             try {
                 // Android 12+ needs BLUETOOTH_CONNECT to list Bluetooth audio outputs. It is
@@ -197,13 +199,8 @@ export const VideoRoomCore: React.FC<VideoRoomProps> = ({ roomName, visible, onC
                 );
                 const cameraOk = grants[PermissionsAndroid.PERMISSIONS.CAMERA] === PermissionsAndroid.RESULTS.GRANTED;
                 const audioOk = grants[PermissionsAndroid.PERMISSIONS.RECORD_AUDIO] === PermissionsAndroid.RESULTS.GRANTED;
-                if (!cameraOk || !audioOk) {
-                    Alert.alert(
-                        'Permissions Required',
-                        'Camera and microphone access are needed for video calls. Please grant them in Settings.',
-                        [{ text: 'OK' }]
-                    );
-                }
+                // Denied is shown on screen with a way out. A silent spinner was the old dead end.
+                setPermissionDenied(!(cameraOk && audioOk));
                 setPermissionGranted(cameraOk && audioOk);
             } catch (err) {
                 console.warn('Permission request error:', err);
@@ -251,6 +248,7 @@ export const VideoRoomCore: React.FC<VideoRoomProps> = ({ roomName, visible, onC
             requestPermissions();
         } else {
             setPermissionGranted(false);
+            setPermissionDenied(false);
             setJoinInfo(null);
             setError(null);
         }
@@ -306,6 +304,24 @@ export const VideoRoomCore: React.FC<VideoRoomProps> = ({ roomName, visible, onC
                                 style={[styles.retryButton, { borderColor: theme.colors.accent }]}
                             >
                                 <Text style={[styles.loadingSubtext, { color: theme.colors.accent }]}>Try again</Text>
+                            </TouchableOpacity>
+                        </View>
+                    ) : permissionDenied ? (
+                        <View style={styles.loading}>
+                            <Text style={[styles.loadingText, { color: theme.colors.text }]}>
+                                Camera and microphone access is needed to join the call.
+                            </Text>
+                            <TouchableOpacity
+                                onPress={requestPermissions}
+                                style={[styles.retryButton, { borderColor: theme.colors.accent }]}
+                            >
+                                <Text style={[styles.loadingSubtext, { color: theme.colors.accent }]}>Allow access</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                onPress={() => Linking.openSettings()}
+                                style={[styles.retryButton, { borderColor: theme.colors.accent }]}
+                            >
+                                <Text style={[styles.loadingSubtext, { color: theme.colors.accent }]}>Open settings</Text>
                             </TouchableOpacity>
                         </View>
                     ) : joinInfo ? (
