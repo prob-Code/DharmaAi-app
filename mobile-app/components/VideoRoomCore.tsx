@@ -12,7 +12,7 @@ import {
 } from '@videosdk.live/react-native-sdk';
 import { useTheme } from '../context/ThemeContext';
 import { Config } from '../config';
-import { getIdToken } from '../services/firebase';
+import { getIdToken, waitForAuthReady } from '../services/firebase';
 
 interface VideoRoomProps {
     roomName: string;
@@ -93,7 +93,7 @@ const CallView: React.FC<{
     const onFailedRef = useRef(onFailed);
     onFailedRef.current = onFailed;
 
-    const { leave, toggleMic, toggleCam, participants, localParticipant } = useRoom({
+    const { join, leave, toggleMic, toggleCam, participants, localParticipant } = useRoom({
         onRoomJoined: () => setJoined(true),
         onError: (error) => {
             console.warn('VideoSDK error:', error?.code, error?.message);
@@ -112,6 +112,13 @@ const CallView: React.FC<{
 
     const handleLeave = () => {
         leave().catch(() => undefined).finally(onLeave);
+    };
+
+    const handleJoin = () => {
+        void Promise.resolve(join()).catch((error) => {
+            console.warn('VideoSDK join failed:', error);
+            onFailed('The call could not start. Please try again.');
+        });
     };
 
     const handleToggleMic = async () => {
@@ -141,29 +148,40 @@ const CallView: React.FC<{
 
     return (
         <View style={styles.callContainer}>
-            <FlatList
-                data={tileIds}
-                keyExtractor={(id) => id}
-                renderItem={renderTile}
-                style={{ flex: 1 }}
-            />
-            <View style={[styles.controls, { borderTopColor: theme.colors.border }]}>
-                <TouchableOpacity
-                    onPress={handleToggleMic}
-                    style={[styles.controlButton, { backgroundColor: micOn ? 'rgba(255,255,255,0.15)' : '#ef4444' }]}
-                >
-                    {micOn ? <Mic color="#fff" size={22} /> : <MicOff color="#fff" size={22} />}
-                </TouchableOpacity>
-                <TouchableOpacity
-                    onPress={handleToggleCam}
-                    style={[styles.controlButton, { backgroundColor: camOn ? 'rgba(255,255,255,0.15)' : '#ef4444' }]}
-                >
-                    {camOn ? <VideoIcon color="#fff" size={22} /> : <VideoOff color="#fff" size={22} />}
-                </TouchableOpacity>
-                <TouchableOpacity onPress={handleLeave} style={[styles.controlButton, { backgroundColor: '#ef4444' }]}>
-                    <X color="#fff" size={22} />
-                </TouchableOpacity>
-            </View>
+            {joined ? (
+                <>
+                    <FlatList
+                        data={tileIds}
+                        keyExtractor={(id) => id}
+                        renderItem={renderTile}
+                        style={{ flex: 1 }}
+                    />
+                    <View style={[styles.controls, { borderTopColor: theme.colors.border }]}>
+                        <TouchableOpacity
+                            onPress={handleToggleMic}
+                            style={[styles.controlButton, { backgroundColor: micOn ? 'rgba(255,255,255,0.15)' : '#ef4444' }]}
+                        >
+                            {micOn ? <Mic color="#fff" size={22} /> : <MicOff color="#fff" size={22} />}
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                            onPress={handleToggleCam}
+                            style={[styles.controlButton, { backgroundColor: camOn ? 'rgba(255,255,255,0.15)' : '#ef4444' }]}
+                        >
+                            {camOn ? <VideoIcon color="#fff" size={22} /> : <VideoOff color="#fff" size={22} />}
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={handleLeave} style={[styles.controlButton, { backgroundColor: '#ef4444' }]}>
+                            <X color="#fff" size={22} />
+                        </TouchableOpacity>
+                    </View>
+                </>
+            ) : (
+                <View style={styles.joinPrompt}>
+                    <Text style={styles.cameraOffText}>Ready to join Dharma Circle</Text>
+                    <TouchableOpacity onPress={handleJoin} style={styles.joinButton}>
+                        <Text style={styles.joinButtonText}>Join circle</Text>
+                    </TouchableOpacity>
+                </View>
+            )}
         </View>
     );
 };
@@ -217,9 +235,10 @@ export const VideoRoomCore: React.FC<VideoRoomProps> = ({ roomName, visible, onC
         setError(null);
         setJoinInfo(null);
         try {
-            const token = await getIdToken();
+            await waitForAuthReady();
+            let token = await getIdToken();
             if (!token) throw new Error('You must be signed in to start a video call.');
-            const res = await fetch(`${Config.BACKEND_URL}/api/video/token`, {
+            let res = await fetch(`${Config.BACKEND_URL}/api/video/token`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -227,9 +246,22 @@ export const VideoRoomCore: React.FC<VideoRoomProps> = ({ roomName, visible, onC
                 },
                 body: JSON.stringify({ roomName: cleanRoom }),
             });
+            if (res.status === 401) {
+                token = await getIdToken(true);
+                if (!token) throw new Error('Your sign-in session has expired. Please sign in again.');
+                res = await fetch(`${Config.BACKEND_URL}/api/video/token`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: `Bearer ${token}`,
+                    },
+                    body: JSON.stringify({ roomName: cleanRoom }),
+                });
+            }
             if (!res.ok) {
                 const body = await res.json().catch(() => null);
-                throw new Error(body?.error || `Video call service unavailable (${res.status})`);
+                const detail = typeof body?.details === 'string' ? `: ${body.details}` : '';
+                throw new Error(`${body?.error || `Video call service unavailable (${res.status})`}${detail}`);
             }
             const data = await res.json();
             if (!data.token || !data.roomId) {
@@ -340,7 +372,7 @@ export const VideoRoomCore: React.FC<VideoRoomProps> = ({ roomName, visible, onC
                                 defaultCamera: 'front',
                             }}
                             token={joinInfo.token}
-                            joinWithoutUserInteraction={true}
+                            joinWithoutUserInteraction={false}
                         >
                             <CallView onLeave={closeRoom} onFailed={handleCallFailed} />
                         </RoomProvider>
@@ -427,6 +459,24 @@ const styles = StyleSheet.create({
     },
     callContainer: {
         flex: 1,
+    },
+    joinPrompt: {
+        flex: 1,
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 16,
+    },
+    joinButton: {
+        borderWidth: 1,
+        borderColor: '#d6b87c',
+        borderRadius: 24,
+        paddingHorizontal: 24,
+        paddingVertical: 12,
+    },
+    joinButtonText: {
+        color: '#d6b87c',
+        fontSize: 16,
+        fontWeight: '600',
     },
     participantView: {
         height: 300,
