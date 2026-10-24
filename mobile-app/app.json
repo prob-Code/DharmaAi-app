@@ -18,6 +18,7 @@
       "expo-audio",
       "expo-video",
       "expo-asset",
+      "@react-native-google-signin/google-signin",
       [
         "@videosdk.live/expo-config-plugin",
         {

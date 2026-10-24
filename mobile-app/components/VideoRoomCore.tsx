@@ -55,7 +55,7 @@ function describeCallError(code: number | undefined): string {
         case errors.DUPLICATE_PARTICIPANT:
             return 'You are already in this call on another device.';
         default:
-            return 'The call could not start. Check your connection and try again.';
+            return `The call could not start (code ${code ?? 'unknown'}). Check your connection and try again.`;
     }
 }
 
@@ -238,7 +238,13 @@ export const VideoRoomCore: React.FC<VideoRoomProps> = ({ roomName, visible, onC
             setJoinInfo({ token: data.token, roomId: data.roomId, participantName: displayName });
         } catch (err) {
             console.warn('Video token error:', err);
-            setError('Could not start the call. Check your connection and try again.');
+            // Our own messages (sign-in, server configuration) are already user-facing.
+            const message = err instanceof Error ? err.message : '';
+            setError(
+                message.includes('Network request failed')
+                    ? 'Check your internet connection and try again.'
+                    : message || 'The call could not start. Try again.'
+            );
         }
     }, [cleanRoom, displayName]);
 

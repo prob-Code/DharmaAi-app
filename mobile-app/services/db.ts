@@ -22,6 +22,7 @@ import {
 } from 'firebase/firestore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as AuthSession from 'expo-auth-session';
+import { GoogleSignin, isSuccessResponse } from '@react-native-google-signin/google-signin';
 import {
     db, auth, currentUser, waitForAuthReady,
     signInWithEmailAndPassword, createUserWithEmailAndPassword,
@@ -242,6 +243,25 @@ export const authService = {
      * Config.GOOGLE_WEB_CLIENT_ID chahiye — Firebase Console →
      * Authentication → Sign-in method → Google → Web SDK configuration.
      */
+    /**
+     * Android sign-in through Google Play services (account picker, no browser).
+     * Google blocks browser-based sign-in from some app setups with the
+     * "doesn't comply with OAuth 2.0 policy" error, so Android uses this instead.
+     * Returns null when the user closes the account picker.
+     */
+    signInWithGoogleNative: async () => {
+        GoogleSignin.configure({ webClientId: Config.GOOGLE_WEB_CLIENT_ID });
+        await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+        const response = await GoogleSignin.signIn();
+        if (!isSuccessResponse(response)) return null;
+
+        const idToken = response.data.idToken;
+        if (!idToken) throw new Error('Google did not return a sign-in token. Please try again.');
+
+        const cred = await signInWithCredential(auth, GoogleAuthProvider.credential(idToken));
+        return { user: cred.user };
+    },
+
     signInWithGoogle: async (redirectUrl?: string) => {
         const clientId = Config.GOOGLE_WEB_CLIENT_ID;
         if (!clientId) {
