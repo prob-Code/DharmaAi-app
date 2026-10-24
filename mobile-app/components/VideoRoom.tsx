@@ -46,13 +46,16 @@ function loadCore(): CoreComponent | null {
 }
 
 export const VideoRoom: React.FC<CoreProps> = (props) => {
-    const [Core, setCore] = useState<CoreComponent | null>(cachedCore);
+    // The component is stored through a function: React would otherwise call a component
+    // passed directly to setState as an updater, with null props.
+    const [Core, setCore] = useState<CoreComponent | null>(() => cachedCore);
     const [initializationError, setInitializationError] = useState<string | null>(loadError);
 
     useEffect(() => {
         if (!props.visible || Core) return;
         try {
-            setCore(loadCore());
+            const loaded = loadCore();
+            setCore(() => loaded);
             setInitializationError(loadError);
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
