@@ -87,6 +87,9 @@ export const VideoRoom: React.FC<CoreProps> = (props) => {
                             ? 'Video calling could not start on this device. Check that you installed the latest APK and granted camera and microphone permissions.'
                             : 'Video calls need a development or production build of the app. They are not supported in Expo Go.'}
                     </Text>
+                    {initializationError ? (
+                        <Text style={styles.detail}>Details: {initializationError}</Text>
+                    ) : null}
                     <TouchableOpacity onPress={props.onClose} style={styles.button}>
                         <Text style={styles.buttonText}>Close</Text>
                     </TouchableOpacity>
@@ -118,6 +121,11 @@ const styles = StyleSheet.create({
         color: '#d1d5db',
         fontSize: 14,
         lineHeight: 20,
+    },
+    detail: {
+        color: '#9ca3af',
+        fontSize: 12,
+        lineHeight: 17,
     },
     button: {
         alignSelf: 'flex-end',

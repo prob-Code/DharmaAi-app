@@ -259,6 +259,11 @@ export const authService = {
         if (!idToken) throw new Error('Google did not return a sign-in token. Please try again.');
 
         const cred = await signInWithCredential(auth, GoogleAuthProvider.credential(idToken));
+        // Without a profile document the user never appears in other people's lists.
+        await authService.ensureProfile(cred.user.uid, {
+            display_name: cred.user.displayName || undefined,
+            avatar_url: cred.user.photoURL || undefined,
+        });
         return { user: cred.user };
     },
 
