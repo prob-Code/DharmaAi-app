@@ -14,6 +14,14 @@
       },
       "oauth_client": [
         {
+          "client_id": "242606699113-1c174hcn6nvl8f3j0f7abarp05m9dhjp.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.dharmaai.innerbalance",
+            "certificate_hash": "b5069ca6d63a5b2be07005ce9cc66f123ca84206"
+          }
+        },
+        {
           "client_id": "242606699113-scp4ikjbrj8t0ihdc6df7dhluq2dagi5.apps.googleusercontent.com",
           "client_type": 3
         }

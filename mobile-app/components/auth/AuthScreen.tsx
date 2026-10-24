@@ -204,6 +204,14 @@ export const AuthScreen = () => {
                 // On web, Supabase will handle the redirect automatically
                 // The component will unmount when the session is detected by AuthContext
             } else {
+                if (Platform.OS === 'android') {
+                    // Google account picker through Play services: no browser, so Google's
+                    // OAuth policy check does not apply. Auth state change moves the user in.
+                    await authService.signInWithGoogleNative();
+                    stopLoading();
+                    return;
+                }
+
                 // ─── Native: use custom OAuth flow with browser session ───
 
                 // 1) Register deep-link listener BEFORE opening the browser

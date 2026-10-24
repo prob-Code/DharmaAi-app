@@ -18,8 +18,24 @@
       "expo-audio",
       "expo-video",
       "expo-asset",
-      "@livekit/react-native-expo-plugin",
-      "@config-plugins/react-native-webrtc"
+      "@react-native-google-signin/google-signin",
+      [
+        "@videosdk.live/expo-config-plugin",
+        {
+          "cameraPermission": "Allow Saarthi to use the camera for video calls",
+          "microphonePermission": "Allow Saarthi to use the microphone for calls"
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "buildArchs": ["arm64-v8a"],
+            "enableMinifyInReleaseBuilds": true,
+            "enableShrinkResourcesInReleaseBuilds": true
+          }
+        }
+      ]
     ],
     "ios": {
       "supportsTablet": true,
@@ -27,7 +43,9 @@
       "infoPlist": {
         "UIBackgroundModes": [
           "audio"
-        ]
+        ],
+        "NSCameraUsageDescription": "Saarthi uses the camera for video calls with your Dharma Circle.",
+        "NSMicrophoneUsageDescription": "Saarthi uses the microphone for voice and video calls with your Dharma Circle."
       }
     },
     "android": {
@@ -37,11 +55,14 @@
         "backgroundColor": "#121C1A"
       },
       "package": "com.dharmaai.innerbalance",
-      "versionCode": 6,
+      "versionCode": 7,
       "intentFilters": [
         {
           "action": "VIEW",
-          "category": ["BROWSABLE", "DEFAULT"],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ],
           "data": [
             {
               "scheme": "dharmaai",
@@ -54,7 +75,14 @@
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO",
         "android.permission.INTERNET",
-        "android.permission.POST_NOTIFICATIONS"
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.BLUETOOTH",
+        "android.permission.BLUETOOTH_ADMIN",
+        "android.permission.BLUETOOTH_CONNECT",
+        "android.permission.ACCESS_NETWORK_STATE",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"
       ],
       "predictiveBackGestureEnabled": false
     },
@@ -63,8 +91,9 @@
     },
     "extra": {
       "eas": {
-        "projectId": "a39dc81e-85d7-4b87-a718-40d3eb49f322"
+        "projectId": "304f9ed0-37da-49cd-9205-abb3e0db4de0"
       }
-    }
+    },
+    "owner": "ojass_135"
   }
 }

@@ -141,7 +141,11 @@ export const DirectMessage: React.FC<DirectMessageProps> = ({ receiver, onBack, 
     setMessages((prev) => [tempMsg, ...prev]);
 
     try {
-      const data = await messagesService.send(receiver.id, textToSend);
+      const data = await messagesService.send(receiver.id, textToSend, {
+        username: receiver.username,
+        display_name: receiver.display_name,
+        avatar_url: receiver.avatar_url,
+      });
       
       // Replace the optimistic item and remove a possible realtime duplicate.
       setMessages(prev => [data, ...prev.filter(msg => msg.id !== tempMsg.id && msg.id !== data.id)]);

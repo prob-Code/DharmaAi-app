@@ -196,7 +196,7 @@ const AppContent = () => {
   }
 
   // No session — show authentication screen
-  if (!session) {
+  if (!session || !user?.id) {
     return <AuthScreen />;
   }
 

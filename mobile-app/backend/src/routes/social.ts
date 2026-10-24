@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { requireFirebaseUser } from "../middleware/firebaseAuth";
+import { getFirebaseAuth, requireFirebaseUser } from "../middleware/firebaseAuth";
 import { getSocialStore } from "../services/socialStore";
 
 export const socialRouter = Router();
@@ -31,6 +31,27 @@ async function getProfiles(store: ReturnType<typeof getSocialStore>, userIds: st
   if (error) throw error;
   return new Map((data ?? []).map((profile) => [profile.id, profile]));
 }
+
+socialRouter.get("/profiles", async (req, res, next) => {
+  try {
+    const search = typeof req.query.search === "string" ? req.query.search.trim().toLowerCase() : "";
+    const excludeId = uid(req);
+    const users = await getFirebaseAuth().listUsers(1000);
+    const profiles = users.users
+      .filter((user) => user.uid !== excludeId)
+      .map((user) => ({
+        id: user.uid,
+        username: user.displayName?.toLowerCase().replace(/[^a-z0-9_]/g, "") || user.email?.split("@")[0] || "user",
+        display_name: user.displayName || user.email?.split("@")[0] || "Friend",
+        avatar_url: user.photoURL || null
+      }))
+      .filter((profile) => !search || `${profile.display_name} ${profile.username}`.toLowerCase().includes(search))
+      .slice(0, 50);
+    res.json(profiles);
+  } catch (error) {
+    next(error);
+  }
+});
 
 socialRouter.get("/posts", async (req, res, next) => {
   try {
@@ -160,8 +181,33 @@ socialRouter.post("/messages", async (req, res, next) => {
       res.status(400).json({ error: "A valid receiver and message up to 1000 characters are required." });
       return;
     }
-    const { data, error } = await getSocialStore().from("messages")
-      .insert({ sender_id: uid(req), receiver_id: req.body.receiverId, content })
+    const store = getSocialStore();
+    const receiverId = String(req.body.receiverId);
+    let receiver;
+    try {
+      receiver = await getFirebaseAuth().getUser(receiverId);
+    } catch {
+      res.status(400).json({ error: "The selected user no longer exists." });
+      return;
+    }
+    const receiverProfile = req.body.receiverProfile && typeof req.body.receiverProfile === "object"
+      ? req.body.receiverProfile
+      : {};
+    const { error: receiverError } = await store.from("profiles").upsert({
+      id: receiverId,
+      username: typeof receiverProfile.username === "string"
+        ? receiverProfile.username
+        : receiver.email?.split("@")[0] ?? null,
+      display_name: typeof receiverProfile.display_name === "string"
+        ? receiverProfile.display_name
+        : receiver.displayName ?? receiver.email?.split("@")[0] ?? "Friend",
+      avatar_url: typeof receiverProfile.avatar_url === "string"
+        ? receiverProfile.avatar_url
+        : receiver.photoURL ?? null
+    }, { onConflict: "id", ignoreDuplicates: true });
+    if (receiverError) throw receiverError;
+    const { data, error } = await store.from("messages")
+      .insert({ sender_id: uid(req), receiver_id: receiverId, content })
       .select("*").single();
     if (error) throw error;
     res.status(201).json(data);

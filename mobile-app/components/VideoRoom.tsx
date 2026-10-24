@@ -1,5 +1,5 @@
 import React, { Component, ErrorInfo, useEffect, useState } from 'react';
-import { NativeModules, View, Text, Modal, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, Modal, TouchableOpacity, StyleSheet } from 'react-native';
 
 type CoreProps = React.ComponentProps<typeof import('./VideoRoomCore').VideoRoomCore>;
 type CoreComponent = React.ComponentType<CoreProps>;
@@ -26,47 +26,36 @@ class CallErrorBoundary extends Component<
     }
 }
 
-// LiveKit uses a native WebRTC module that Expo Go does not include. Importing it at
-// startup crashes the whole app, so it is only loaded the first time a call is opened.
+// The VideoSDK native engine is not included in Expo Go. Importing it at startup would crash
+// the whole app, so it is only loaded the first time a call is opened.
 function loadCore(): CoreComponent | null {
     if (cachedCore || loadError) return cachedCore;
     try {
-        const webRtcModule = NativeModules.WebRTCModule;
-        const liveKitModule = NativeModules.LivekitReactNativeModule;
-        if (!webRtcModule || !liveKitModule) {
-            loadError = 'The native WebRTC module is not installed in this build.';
-            return null;
-        }
-        const livekit = require('@livekit/react-native');
-        if (typeof livekit.registerGlobals !== 'function') {
-            loadError = 'The LiveKit native module is incomplete in this build.';
-            return null;
-        }
-        livekit.registerGlobals();
-        if (
-            typeof globalThis.RTCPeerConnection !== 'function' ||
-            !globalThis.navigator?.mediaDevices?.getUserMedia
-        ) {
-            loadError = 'The native WebRTC module could not be initialized.';
+        const videoSdk = require('@videosdk.live/react-native-sdk');
+        if (typeof videoSdk.RoomProvider !== 'function') {
+            loadError = 'The video calling module is not installed in this build.';
             return null;
         }
         cachedCore = require('./VideoRoomCore').VideoRoomCore;
     } catch (e: any) {
         loadError = e?.message ?? String(e);
-        // Expo Go intentionally does not ship the native WebRTC module. The
+        // Expo Go intentionally does not ship native video modules. The
         // visible modal below explains the limitation to the user.
     }
     return cachedCore;
 }
 
 export const VideoRoom: React.FC<CoreProps> = (props) => {
-    const [Core, setCore] = useState<CoreComponent | null>(cachedCore);
+    // The component is stored through a function: React would otherwise call a component
+    // passed directly to setState as an updater, with null props.
+    const [Core, setCore] = useState<CoreComponent | null>(() => cachedCore);
     const [initializationError, setInitializationError] = useState<string | null>(loadError);
 
     useEffect(() => {
         if (!props.visible || Core) return;
         try {
-            setCore(loadCore());
+            const loaded = loadCore();
+            setCore(() => loaded);
             setInitializationError(loadError);
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
@@ -98,6 +87,9 @@ export const VideoRoom: React.FC<CoreProps> = (props) => {
                             ? 'Video calling could not start on this device. Check that you installed the latest APK and granted camera and microphone permissions.'
                             : 'Video calls need a development or production build of the app. They are not supported in Expo Go.'}
                     </Text>
+                    {initializationError ? (
+                        <Text style={styles.detail}>Details: {initializationError}</Text>
+                    ) : null}
                     <TouchableOpacity onPress={props.onClose} style={styles.button}>
                         <Text style={styles.buttonText}>Close</Text>
                     </TouchableOpacity>
@@ -129,6 +121,11 @@ const styles = StyleSheet.create({
         color: '#d1d5db',
         fontSize: 14,
         lineHeight: 20,
+    },
+    detail: {
+        color: '#9ca3af',
+        fontSize: 12,
+        lineHeight: 17,
     },
     button: {
         alignSelf: 'flex-end',

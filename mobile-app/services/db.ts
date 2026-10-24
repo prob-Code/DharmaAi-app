@@ -22,6 +22,7 @@ import {
 } from 'firebase/firestore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as AuthSession from 'expo-auth-session';
+import { GoogleSignin, isSuccessResponse } from '@react-native-google-signin/google-signin';
 import {
     db, auth, currentUser, waitForAuthReady,
     signInWithEmailAndPassword, createUserWithEmailAndPassword,
@@ -242,6 +243,30 @@ export const authService = {
      * Config.GOOGLE_WEB_CLIENT_ID chahiye — Firebase Console →
      * Authentication → Sign-in method → Google → Web SDK configuration.
      */
+    /**
+     * Android sign-in through Google Play services (account picker, no browser).
+     * Google blocks browser-based sign-in from some app setups with the
+     * "doesn't comply with OAuth 2.0 policy" error, so Android uses this instead.
+     * Returns null when the user closes the account picker.
+     */
+    signInWithGoogleNative: async () => {
+        GoogleSignin.configure({ webClientId: Config.GOOGLE_WEB_CLIENT_ID });
+        await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+        const response = await GoogleSignin.signIn();
+        if (!isSuccessResponse(response)) return null;
+
+        const idToken = response.data.idToken;
+        if (!idToken) throw new Error('Google did not return a sign-in token. Please try again.');
+
+        const cred = await signInWithCredential(auth, GoogleAuthProvider.credential(idToken));
+        // Without a profile document the user never appears in other people's lists.
+        await authService.ensureProfile(cred.user.uid, {
+            display_name: cred.user.displayName || undefined,
+            avatar_url: cred.user.photoURL || undefined,
+        });
+        return { user: cred.user };
+    },
+
     signInWithGoogle: async (redirectUrl?: string) => {
         const clientId = Config.GOOGLE_WEB_CLIENT_ID;
         if (!clientId) {
@@ -559,22 +584,15 @@ export const followsService = {
 };
 
 export const profilesService = {
-    getAll: async (excludeUserId?: string) => {
-        const snaps = await getDocs(query(collection(db, 'profiles'), fsLimit(20)));
-        return snaps.docs.map(row).filter((profile) => profile.id !== excludeUserId);
+    getAll: async (excludeUserId?: string): Promise<any[]> => {
+        const profiles = await socialApi<any[]>('/profiles');
+        return (profiles || []).filter((profile) => profile.id !== excludeUserId);
     },
 
-    search: async (text: string, excludeUserId?: string) => {
-        const snaps = await getDocs(query(collection(db, 'profiles'), fsLimit(50)));
+    search: async (text: string, excludeUserId?: string): Promise<any[]> => {
         const normalized = text.trim().toLowerCase();
-        if (!normalized) return snaps.docs.map(row).filter((profile) => profile.id !== excludeUserId);
-        return snaps.docs
-            .map(row)
-            .filter((profile) => profile.id !== excludeUserId)
-            .filter((profile) =>
-                `${profile.display_name ?? ''} ${profile.username ?? ''}`.toLowerCase().includes(normalized),
-            )
-            .slice(0, 20);
+        const profiles = await socialApi<any[]>(`/profiles${normalized ? `?search=${encodeURIComponent(normalized)}` : ''}`);
+        return (profiles || []).filter((profile) => profile.id !== excludeUserId).slice(0, 20);
     },
 };
 
@@ -584,13 +602,30 @@ export const profilesService = {
 
 export const messagesService = {
 
-    send: async (receiverId: string, content: string) => {
+    send: async (
+        receiverId: string,
+        content: string,
+        receiverProfile?: { username?: string; display_name?: string; avatar_url?: string },
+    ): Promise<any> => {
         const me = requireUser();
         const cleanContent = content.trim();
         if (!receiverId || receiverId === me.uid) throw new Error('You cannot message this account.');
         if (!cleanContent) throw new Error('Message cannot be empty.');
         if (cleanContent.length > 1000) throw new Error('Message must be 1000 characters or fewer.');
-        return socialApi('/messages', { method: 'POST', body: JSON.stringify({ receiverId, content: cleanContent }) });
+        return socialApi('/messages', {
+            method: 'POST',
+            body: JSON.stringify({
+                receiverId,
+                content: cleanContent,
+                receiverProfile: receiverProfile
+                    ? {
+                        username: receiverProfile.username,
+                        display_name: receiverProfile.display_name,
+                        avatar_url: receiverProfile.avatar_url,
+                    }
+                    : undefined,
+            }),
+        });
     },
 
     getConversations: async () => {
